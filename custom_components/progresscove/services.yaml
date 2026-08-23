@@ -1,0 +1,47 @@
+complete:
+  name: Complete a task
+  description: >-
+    Mark any ProgressCove task done, at any depth, including a subtask that is not one of a list's
+    own items and so cannot be reached with todo.update_item. A repeating task is held for ten
+    seconds before it is sent, so calling reopen inside that window cancels it; anything else is
+    sent straight away and reopens normally.
+  fields:
+    node_id:
+      name: Task
+      description: >-
+        The task's id. Read it from a card, or from the node_id attribute of its button or switch.
+      required: true
+      example: 96d699ae-fb2c-4620-956a-af634bfd3261
+      selector:
+        text:
+
+reopen:
+  name: Reopen a task
+  description: >-
+    Undo a completion. Inside the ten-second window this cancels the pending write and the server is
+    never told. Afterwards it reopens an ordinary task; a repeating task is refused, because
+    completing it already moved it to its next occurrence.
+  fields:
+    node_id:
+      name: Task
+      description: The task's id, as above.
+      required: true
+      example: 96d699ae-fb2c-4620-956a-af634bfd3261
+      selector:
+        text:
+
+get_nested_items:
+  name: Get subtasks
+  description: >-
+    The children of each item in a list, keyed by the item they belong to. Use todo.get_items for
+    the list's own items, which it returns at any size; this answers the level below that, which a
+    to-do item has no room for.
+  fields:
+    node_id:
+      name: List
+      description: >-
+        The list's id. Read it from the node_id attribute of the to-do entity.
+      required: true
+      example: 96d699ae-fb2c-4620-956a-af634bfd3261
+      selector:
+        text:

@@ -1,0 +1,179 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "ProgressCove'a bağlan",
+        "description": "ProgressCove uygulamasında {tokens_url} altından bir API anahtarı oluşturun ve buraya yapıştırın.",
+        "data": {
+          "base_url": "Sunucu",
+          "token": "API anahtarı"
+        },
+        "data_description": {
+          "base_url": "ProgressCove'un kendi sunucuları için olduğu gibi bırakın; kendi sunucunuzda barındırıyorsanız adresini girin.",
+          "token": "pat_ ile başlar. Yalnızca oluşturulduğu anda bir kez gösterilir."
+        }
+      },
+      "pair": {
+        "title": "Bu kurulumu yetkilendirin",
+        "description": "Uygulamada bu kodu girin: **{code}**\n\nSiz girene kadar anahtar hiçbir şeye erişemez."
+      },
+      "projects": {
+        "title": "Listelerinizi seçin",
+        "description": "Her düğüm bir liste olabilir. Doğrudan alt öğeleri listenin maddeleri olur. Halihazırda içinde bir şey olanlar sizin için işaretlendi.",
+        "data": {
+          "projects": "Listeler"
+        },
+        "data_description": {
+          "projects": "Her biri bir yapılacaklar listesi olur. Doğrudan alt öğeleri maddeleri olur."
+        }
+      },
+      "reconfigure": {
+        "title": "Sunucu adresini değiştir",
+        "description": "Bu Home Assistant'ın ProgressCove'a ulaştığı adres. Jetonu değiştirmek için entegrasyonu kaldırıp yeniden ekleyin ya da eskisi çalışmayı bıraktığında sorulmasını bekleyin.",
+        "data": {
+          "base_url": "Sunucu"
+        }
+      },
+      "reauth_confirm": {
+        "title": "ProgressCove'a yeniden bağlanın",
+        "description": "API anahtarınız artık geçerli değil. Yeni bir tane oluşturup buraya yapıştırın.",
+        "data": {
+          "token": "API anahtarı"
+        }
+      },
+      "insecure": {
+        "title": "Bu adres şifreli değil",
+        "description": "{url} http kullanıyor, bu yüzden jetonunuz ve görev adlarınız ağ üzerinde açık şekilde iletilir. Güvendiğiniz ve yönettiğiniz bir ağda sorun değildir. İnternet üzerinde ise sizinle sunucu arasındaki herkes bunları okuyabilir.\n\nYalnızca bu adresin kendi ağınızda kaldığını biliyorsanız devam edin."
+      },
+      "reconfigure_insecure": {
+        "title": "Bu adres şifreli değil",
+        "description": "{url} http kullanıyor, bu yüzden jetonunuz ve görev adlarınız ağ üzerinde açık şekilde iletilir. Güvendiğiniz ve yönettiğiniz bir ağda sorun değildir. İnternet üzerinde ise sizinle sunucu arasındaki herkes bunları okuyabilir.\n\nYalnızca bu adresin kendi ağınızda kaldığını biliyorsanız devam edin."
+      }
+    },
+    "abort": {
+      "already_configured": "Bu hesap zaten kurulu.",
+      "reauth_successful": "Yeniden bağlanıldı.",
+      "reconfigure_successful": "Kaydedildi."
+    },
+    "error": {
+      "invalid_auth": "ProgressCove bu anahtarı kabul etmedi.",
+      "cannot_connect": "Sunucuya ulaşılamadı.",
+      "not_paired_yet": "Henüz eşleştirilmedi. Kodu ProgressCove'a girin ve tekrar deneyin.",
+      "no_projects": "Bu hesapta gösterilecek bir şey yok.",
+      "invalid_url": "Bu bir web adresine benzemiyor. https:// ile başlamalı"
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "ProgressCove ayarları",
+        "data": {
+          "min_depth": "Listeler şu katmandan gelebilir",
+          "max_depth": "…şu katmana kadar",
+          "node_sort": "Görevleri şöyle göster",
+          "scan_minutes": "Kontroller arası dakika",
+          "auto_prune": "Görevi silindiğinde varlıkları kaldır"
+        },
+        "data_description": {
+          "min_depth": "Bir listenin gelebileceği en üst seviye.",
+          "max_depth": "En derini. Yalnızca tek bir katmandan seçmek için ikisini aynı yapın.",
+          "node_sort": "Görev adı önce yazması daha kolay; tam yol proje proje gezmek için daha uygun.",
+          "scan_minutes": "Başka yerlerde yapılan değişikliklerin ne sıklıkla aranacağı: uygulamada, web'de, telefonunuzda. Home Assistant üzerinden yaptıklarınız anında gönderilir, bunu beklemez.",
+          "auto_prune": "Önce sunucuya sorar ve yalnızca görevin gittiği doğrulandığında düğmeyi, anahtarı veya sensörü kaldırır. Kapatırsanız kaldırılmaz, yalnızca bildirilir."
+        },
+        "description": "Listelerinizi seçmek bu sayfanın üstündeki \"Liste ekle\" düğmesi. Buradakiler onun arkasındaki ayarlar."
+      }
+    }
+  },
+  "config_subentries": {
+    "list": {
+      "initiate_flow": {
+        "user": "Liste ekle"
+      },
+      "title": "Liste ekle",
+      "step": {
+        "user": {
+          "title": "Liste ekle",
+          "description": "Her düğüm bir liste olabilir. Doğrudan alt öğeleri listenin maddeleri olur. Çizgiyle işaretli satırlar yalnızca bağlam içindir. İşaretli satırlar zaten listedir; kaldırmak için işareti kaldırın.",
+          "data": {
+            "projects": "Listeler"
+          }
+        }
+      },
+      "abort": {
+        "cannot_connect": "ProgressCove'a ulaşılamadı.",
+        "lists_updated": "Listeler güncellendi."
+      },
+      "entry_type": "Liste",
+      "error": {
+        "not_selectable": "O satır yalnızca bağlam içindir. Çizgisiz bir satır seçin."
+      }
+    },
+    "button": {
+      "initiate_flow": {
+        "user": "Düğme ekle"
+      },
+      "title": "Düğme ekle",
+      "step": {
+        "user": {
+          "title": "Düğme ekle",
+          "description": "Herhangi bir öğe seçin. Düğmeye basmak onun bugünkü tekrarını tamamlar.",
+          "data": {
+            "node_id": "Öğe"
+          }
+        }
+      },
+      "abort": {
+        "cannot_connect": "ProgressCove'a ulaşılamadı.",
+        "no_tasks_left": "Her görevin zaten bir tanesi var."
+      },
+      "entry_type": "Düğme"
+    },
+    "switch": {
+      "initiate_flow": {
+        "user": "Anahtar ekle"
+      },
+      "title": "Anahtar ekle",
+      "step": {
+        "user": {
+          "title": "Anahtar ekle",
+          "description": "Herhangi bir öğe seçin. Öğe açıkken anahtar açık olur; kapatmak onu tamamlar. Tekrarlanan bir görev gönderilmeden önce on saniye bekler; bu süre içinde tekrar açmak geri alır. Diğer görevleri istediğiniz zaman yeniden açabilirsiniz.",
+          "data": {
+            "node_id": "Öğe"
+          }
+        }
+      },
+      "abort": {
+        "cannot_connect": "ProgressCove'a ulaşılamadı.",
+        "no_tasks_left": "Her görevin zaten bir tanesi var."
+      },
+      "entry_type": "Anahtar"
+    },
+    "sensor": {
+      "initiate_flow": {
+        "user": "İlerleme sensörü ekle"
+      },
+      "title": "İlerleme sensörü ekle",
+      "step": {
+        "user": {
+          "title": "İlerleme sensörü ekle",
+          "description": "Altında bir şeyler olan herhangi bir öğe seçin. Sensör bunların ne kadarının bittiğini grafiğe dökebileceğiniz bir yüzde olarak bildirir. \"Bu bitince\" için bunun yerine listenin items_complete özniteliğini kullanın. O doğrudan doğru/yanlış.",
+          "data": {
+            "node_id": "Öğe"
+          }
+        }
+      },
+      "abort": {
+        "cannot_connect": "ProgressCove'a ulaşılamadı.",
+        "no_tasks_left": "Her şeyin zaten bir sensörü var."
+      },
+      "entry_type": "İlerleme sensörü"
+    }
+  },
+  "issues": {
+    "stale_entities": {
+      "title": "Bazı varlıklar artık var olmayan görevleri gösteriyor",
+      "description": "Bunlar sunucuyla doğrulanamadı, bu yüzden hiçbir şey kaldırılmadı: {names}. O görevleri sildiyseniz bunları entegrasyon sayfasından silin. Silmediyseniz, sunucuya ulaşılabildiğinde kendiliğinden geri gelirler."
+    }
+  }
+}

@@ -1,0 +1,18 @@
+{
+  "domain": "progresscove",
+  "name": "ProgressCove",
+  "codeowners": [
+    "@Twenty-Shores"
+  ],
+  "config_flow": true,
+  "dependencies": [
+    "frontend",
+    "http"
+  ],
+  "documentation": "https://github.com/Twenty-Shores/progresscove-homeassistant",
+  "integration_type": "service",
+  "iot_class": "cloud_polling",
+  "issue_tracker": "https://github.com/Twenty-Shores/progresscove-homeassistant/issues",
+  "requirements": [],
+  "version": "0.9.1"
+}

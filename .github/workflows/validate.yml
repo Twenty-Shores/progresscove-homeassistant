@@ -1,0 +1,61 @@
+name: Validate
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+  schedule:
+    # HACS and hassfest both check against a moving target: their own rules change, and hassfest
+    # validates against the current Home Assistant release. A repo that passed on merge can fail
+    # months later without a commit, so this runs weekly rather than only on push.
+    - cron: "0 4 * * 1"
+
+jobs:
+  hassfest:
+    name: hassfest
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: home-assistant/actions/hassfest@master
+
+  hacs:
+    name: HACS
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: hacs/action@main
+        with:
+          category: integration
+
+  tests:
+    name: tests
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+
+      - name: pytest
+        run: pipx run --spec pytest pytest tests/ -q
+
+      - name: Cards
+        run: node --test "tests/cards/*.test.mjs"
+
+      # Both runs are here because they catch opposite failures. The tests stub Home Assistant's
+      # modules and so share sys.modules: the run above catches a file that breaks a later one,
+      # this loop catches a file that only passes because an earlier one ran first.
+      - name: Each test file on its own
+        run: |
+          for f in tests/test_*.py; do
+            echo "--- $f"
+            pipx run --spec pytest pytest "$f" -q
+          done
+
+      - name: Lint
+        run: pipx run ruff check .

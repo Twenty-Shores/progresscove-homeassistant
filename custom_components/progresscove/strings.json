@@ -1,0 +1,179 @@
+{
+  "config": {
+    "step": {
+      "user": {
+        "title": "Connect ProgressCove",
+        "description": "Create an API token in the ProgressCove app under {tokens_url}, then paste it here.",
+        "data": {
+          "base_url": "Server",
+          "token": "API token"
+        },
+        "data_description": {
+          "base_url": "Leave as-is for ProgressCove's own servers, or enter your address if you self-host.",
+          "token": "Starts with pat_. It is shown once, when you create it."
+        }
+      },
+      "projects": {
+        "title": "Choose your lists",
+        "description": "Any node can be a list. Its direct children become the items. The ones already holding items are ticked for you. Add a task you are about to break into subtasks, or untick a branch you do not want. Changeable later under Configure.",
+        "data": {
+          "projects": "Lists"
+        },
+        "data_description": {
+          "projects": "Each one becomes a to-do list. Its direct children become the items."
+        }
+      },
+      "reauth_confirm": {
+        "title": "Reconnect ProgressCove",
+        "description": "Your API token is no longer valid. Create a new one and paste it here.",
+        "data": {
+          "token": "API token"
+        }
+      },
+      "reconfigure": {
+        "title": "Change the server address",
+        "description": "Where this Home Assistant reaches ProgressCove. To replace the token, remove and re-add the integration, or wait for it to ask when the old one stops working.",
+        "data": {
+          "base_url": "Server"
+        }
+      },
+      "pair": {
+        "title": "Pair with ProgressCove",
+        "description": "Open ProgressCove, go to Settings → Advanced → API tokens, and pair this token using the code:\n\n**{code}**\n\nThen continue."
+      },
+      "insecure": {
+        "title": "This address is not encrypted",
+        "description": "{url} uses http, so your token and your task names travel across the network in the open. That is fine on a network you trust and control. It is not fine over the internet, where anyone between you and the server can read them.\n\nContinue only if you know this address stays on your own network."
+      },
+      "reconfigure_insecure": {
+        "title": "This address is not encrypted",
+        "description": "{url} uses http, so your token and your task names travel across the network in the open. That is fine on a network you trust and control. It is not fine over the internet, where anyone between you and the server can read them.\n\nContinue only if you know this address stays on your own network."
+      }
+    },
+    "error": {
+      "cannot_connect": "Could not reach the server. Check the address and try again.",
+      "invalid_auth": "That token was not accepted. It may have been revoked, or your subscription may have ended.",
+      "no_projects": "That account has no projects yet. Create one in the app first.",
+      "not_paired_yet": "Not paired yet. Enter the code in ProgressCove, then try again.",
+      "invalid_url": "That does not look like a web address. It should start with https://"
+    },
+    "abort": {
+      "already_configured": "This account is already set up.",
+      "reauth_successful": "Reconnected.",
+      "reconfigure_successful": "Saved."
+    }
+  },
+  "options": {
+    "step": {
+      "init": {
+        "title": "ProgressCove settings",
+        "description": "Choosing your lists is the \"Add lists\" button at the top of this page. These are the settings behind it.",
+        "data": {
+          "min_depth": "Lists can come from tier",
+          "max_depth": "…down to tier",
+          "node_sort": "Show tasks as",
+          "scan_minutes": "Minutes between checks",
+          "auto_prune": "Remove entities when their task is deleted"
+        },
+        "data_description": {
+          "min_depth": "The highest level a list can come from.",
+          "max_depth": "The deepest. Set both the same to pick from just that one.",
+          "scan_minutes": "How often to look for changes made elsewhere: in the app, on the web, on your phone. Anything you do from Home Assistant is sent straight away and never waits for this.",
+          "node_sort": "Task name first is easier to type; full path is easier to browse by project.",
+          "auto_prune": "Checks with the server first and removes a button, switch or sensor only once it confirms the task is gone. Turn this off to keep them and be told instead."
+        }
+      }
+    }
+  },
+  "config_subentries": {
+    "list": {
+      "initiate_flow": {
+        "user": "Add lists"
+      },
+      "title": "Add lists",
+      "step": {
+        "user": {
+          "title": "Add lists",
+          "description": "Any node can be a list. Its direct children become the items. Rows marked with a dash are context only. Ticked rows are already lists; untick to remove one.",
+          "data": {
+            "projects": "Lists"
+          }
+        }
+      },
+      "abort": {
+        "cannot_connect": "Could not reach ProgressCove.",
+        "lists_updated": "Lists updated."
+      },
+      "entry_type": "List",
+      "error": {
+        "not_selectable": "One of those rows is context only. Pick a row without a dash."
+      }
+    },
+    "button": {
+      "initiate_flow": {
+        "user": "Add a button"
+      },
+      "title": "Add a button",
+      "step": {
+        "user": {
+          "title": "Add a button",
+          "description": "Pick any item. Pressing the button completes today's occurrence of it.",
+          "data": {
+            "node_id": "Item"
+          }
+        }
+      },
+      "abort": {
+        "cannot_connect": "Could not reach ProgressCove.",
+        "no_tasks_left": "Every task already has a button."
+      },
+      "entry_type": "Button"
+    },
+    "switch": {
+      "initiate_flow": {
+        "user": "Add a switch"
+      },
+      "title": "Add a switch",
+      "step": {
+        "user": {
+          "title": "Add a switch",
+          "description": "Pick any item. The switch is on while it is open; turning it off completes it. A repeating task waits ten seconds before it is sent, so turning it back on inside that window undoes it. Anything else reopens normally whenever you like.",
+          "data": {
+            "node_id": "Item"
+          }
+        }
+      },
+      "abort": {
+        "cannot_connect": "Could not reach ProgressCove.",
+        "no_tasks_left": "Every task already has a switch."
+      },
+      "entry_type": "Switch"
+    },
+    "sensor": {
+      "initiate_flow": {
+        "user": "Add a progress sensor"
+      },
+      "title": "Add a progress sensor",
+      "step": {
+        "user": {
+          "title": "Add a progress sensor",
+          "description": "Pick any item that has things under it. The sensor reports how far through them it is, as a percentage you can graph. For \"when this is finished\", trigger on the list's own items_complete attribute instead. It is a plain true/false.",
+          "data": {
+            "node_id": "Item"
+          }
+        }
+      },
+      "abort": {
+        "cannot_connect": "Could not reach ProgressCove.",
+        "no_tasks_left": "Everything already has a sensor."
+      },
+      "entry_type": "Progress sensor"
+    }
+  },
+  "issues": {
+    "stale_entities": {
+      "title": "Some entities point at tasks that are no longer there",
+      "description": "These could not be confirmed with the server, so nothing was removed: {names}. If you deleted those tasks, delete these from the integration page. If not, they will come back on their own once the server is reachable."
+    }
+  }
+}

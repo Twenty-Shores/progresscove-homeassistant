@@ -1,0 +1,17 @@
+# Lint config only: this ships as a Home Assistant custom component, not a package.
+[tool.ruff]
+line-length = 100
+
+[tool.ruff.lint]
+# B904 (re-raising inside an except without `from`) is here because nothing else sees it: the
+# pattern binds no name, so F841 has nothing to flag, and the original traceback is discarded.
+select = ["E", "F", "C90", "W", "B904"]
+
+[tool.ruff.lint.mccabe]
+max-complexity = 10
+
+[tool.ruff.lint.per-file-ignores]
+# tree_labels is complexity 11. Its branches are three small closures sharing the walk's state
+# (which tiers are selectable, whether a branch leads anywhere, how a row is drawn); splitting
+# them would thread that state through parameters and read worse than the thing it replaced.
+"custom_components/progresscove/picker_tree.py" = ["C901"]
