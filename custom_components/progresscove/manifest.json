@@ -1,6 +1,9 @@
 {
   "domain": "progresscove",
   "name": "ProgressCove",
+  "after_dependencies": [
+    "lovelace"
+  ],
   "codeowners": [
     "@Twenty-Shores"
   ],

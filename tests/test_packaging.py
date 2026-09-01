@@ -5,6 +5,7 @@ user however well it works locally. These assert the shape of the shipped direct
 behaviour, because every other test passes with the files in the wrong place.
 """
 import json
+import re
 import unittest
 from pathlib import Path
 
@@ -36,12 +37,30 @@ class ShippedLayoutTest(unittest.TestCase):
         on_disk = {p.name for p in (COMPONENT / "frontend").glob("*.js")}
         self.assertEqual(listed, on_disk)
 
-    def test_the_manifest_depends_on_what_the_frontend_registration_imports(self):
-        """`frontend` and `http` are imported at setup. Without the declaration Home Assistant may
-        set us up before either is loaded."""
+    def test_every_component_we_import_is_declared(self):
+        """hassfest fails the build on an undeclared one, and Home Assistant may otherwise set us
+        up before it has loaded.
+
+        Derived from the imports rather than a hand-kept list: adding one and forgetting the
+        manifest is exactly the mistake this catches. Platforms we merely publish (button, sensor,
+        switch, todo) are loaded through PLATFORMS, not imported at setup, so they are not here.
+        """
         manifest = json.loads((COMPONENT / "manifest.json").read_text())
-        self.assertIn("frontend", manifest.get("dependencies", []))
-        self.assertIn("http", manifest.get("dependencies", []))
+        declared = set(manifest.get("dependencies", [])) | set(
+            manifest.get("after_dependencies", [])
+        )
+        platforms = {"button", "sensor", "switch", "todo"}
+        imported = {
+            match.group(1)
+            for path in COMPONENT.glob("*.py")
+            for match in re.finditer(
+                r"^from homeassistant\.components\.([a-z_]+)", path.read_text(), re.M
+            )
+        } - platforms
+        self.assertTrue(imported, "found no component imports, so this asserts nothing")
+        self.assertEqual(
+            imported - declared, set(), "imported but missing from the manifest"
+        )
 
     def test_the_manifest_carries_everything_hacs_requires(self):
         manifest = json.loads((COMPONENT / "manifest.json").read_text())
