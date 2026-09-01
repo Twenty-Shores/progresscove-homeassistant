@@ -22,9 +22,9 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import STATUS_COMPLETED
 from .coordinator import ProgressCoveCoordinator
-from .pending import needs_window
+from .pending import complete, refuse_if_too_early
 from .names import display_name
-from .helpers import _due_date, _surfaced, _zone, is_due, repeats
+from .helpers import due_date, surfaced, timezone_of, is_due, repeats
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -89,9 +89,21 @@ class ProgressCoveNodeSwitch(CoordinatorEntity[ProgressCoveCoordinator], SwitchE
         return self._node.get("status") != STATUS_COMPLETED
 
     @property
+    def _actionable(self) -> bool:
+        """Whether pressing this would do anything, which is what a card tile lights up for.
+
+        A pending completion is not actionable: the user already pressed it. Reading `is_due`
+        alone left a tile lit for the whole undo window, because the server has not rolled the
+        occurrence yet, so the tile looked unpressed and the surface looked frozen.
+        """
+        if self.coordinator.pending.is_pending(self._node_id):
+            return False
+        return is_due(self._node, self.hass)
+
+    @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        zone = _zone(self.hass)
-        due = _due_date(self._node, zone)
+        zone = timezone_of(self.hass)
+        due = due_date(self._node, zone)
         today = datetime.now(zone).date()
         return {
             "node_id": self._node_id,
@@ -100,7 +112,7 @@ class ProgressCoveNodeSwitch(CoordinatorEntity[ProgressCoveCoordinator], SwitchE
             # The same four the button publishes, so a card tile dims on one rule either way.
             "due_date": due.isoformat() if due else None,
             "due_today": bool(due and due == today),
-            "actionable": is_due(self._node, self.hass),
+            "actionable": self._actionable,
             "days_until": (due - today).days if due else None,
             # Redundant with the state, but an automation author searching for "completed" finds
             # nothing and concludes the entity cannot answer.
@@ -111,18 +123,8 @@ class ProgressCoveNodeSwitch(CoordinatorEntity[ProgressCoveCoordinator], SwitchE
 
     async def async_turn_off(self, **kwargs: Any) -> None:
         """Mark done now; tell the server when the undo window closes."""
-        if self._node.get("status") == STATUS_COMPLETED:
-            return
-
-        async def send() -> None:
-            with _surfaced("complete that task"):
-                await self.coordinator.client.async_complete(self._node_id)
-            await self.coordinator.async_refresh()
-
-        self.coordinator.pending.schedule(
-            self._node_id, send, self.async_write_ha_state,
-            hold=needs_window(self._node),
-        )
+        refuse_if_too_early(self.coordinator, self._node, self._attr_name, self.hass)
+        complete(self.coordinator, self._node_id, self.async_write_ha_state)
 
     async def async_turn_on(self, **kwargs: Any) -> None:
         """Undo a pending completion, or reopen a task that is genuinely closed."""
@@ -140,7 +142,7 @@ class ProgressCoveNodeSwitch(CoordinatorEntity[ProgressCoveCoordinator], SwitchE
                 "Reopening it here would leave it on the wrong day. Change it in the "
                 "ProgressCove app."
             )
-        with _surfaced("reopen that task"):
+        with surfaced("reopen that task"):
             await self.coordinator.client.async_uncomplete(self._node_id)
         await self.coordinator.async_refresh()
 

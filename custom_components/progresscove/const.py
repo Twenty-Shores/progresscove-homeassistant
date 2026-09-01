@@ -26,6 +26,13 @@ DEFAULT_MAX_DEPTH = 3
 MAX_TIER_DEPTH = 8
 # The API's NodeStatus. 2 is completed; anything else is still open.
 STATUS_COMPLETED = 2
+# Closed without being done: the server sets it on a still-open child when an ancestor is
+# completed over it. Not open any more, so a surface that only knows COMPLETED draws it as an
+# unticked box under a ticked parent.
+STATUS_CANCELLED = 4
+
+# A row is drawn ticked for either: the distinction matters to the app, not to a checkbox.
+CLOSED_STATUSES = frozenset({STATUS_COMPLETED, STATUS_CANCELLED})
 
 DEFAULT_BASE_URL = "https://api.progresscove.com"
 
@@ -33,6 +40,11 @@ DEFAULT_BASE_URL = "https://api.progresscove.com"
 # tasks in the app, where Home Assistant cannot see it; off raises a repair instead.
 CONF_AUTO_PRUNE = "auto_prune"
 DEFAULT_AUTO_PRUNE = True
+
+# Completing an occurrence that has not arrived rolls a repeat past the real one, so it is refused
+# by default. Opt in if you want a task completable whenever you like, early or not.
+CONF_COMPLETE_EARLY = "complete_early"
+DEFAULT_COMPLETE_EARLY = False
 
 DEFAULT_SCAN_MINUTES = 1
 MIN_SCAN_MINUTES = 1

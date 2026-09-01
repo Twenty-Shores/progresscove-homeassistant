@@ -72,14 +72,16 @@
           "max_depth": "…şu katmana kadar",
           "node_sort": "Görevleri şöyle göster",
           "scan_minutes": "Kontroller arası dakika",
-          "auto_prune": "Görevi silindiğinde varlıkları kaldır"
+          "auto_prune": "Görevi silindiğinde varlıkları kaldır",
+          "complete_early": "Bitiş tarihinden önce tamamlamaya izin ver"
         },
         "data_description": {
           "min_depth": "Bir listenin gelebileceği en üst seviye.",
           "max_depth": "En derini. Yalnızca tek bir katmandan seçmek için ikisini aynı yapın.",
           "node_sort": "Görev adı önce yazması daha kolay; tam yol proje proje gezmek için daha uygun.",
           "scan_minutes": "Başka yerlerde yapılan değişikliklerin ne sıklıkla aranacağı: uygulamada, web'de, telefonunuzda. Home Assistant üzerinden yaptıklarınız anında gönderilir, bunu beklemez.",
-          "auto_prune": "Önce sunucuya sorar ve yalnızca görevin gittiği doğrulandığında düğmeyi, anahtarı veya sensörü kaldırır. Kapatırsanız kaldırılmaz, yalnızca bildirilir."
+          "auto_prune": "Önce sunucuya sorar ve yalnızca görevin gittiği doğrulandığında düğmeyi, anahtarı veya sensörü kaldırır. Kapatırsanız kaldırılmaz, yalnızca bildirilir.",
+          "complete_early": "Kapalı: tarihi gelmemiş bir görev reddedilir, çünkü tekrar eden bir görevi erken tamamlamak beklediğiniz tekrarı atlar. Açık: her şeyi istediğiniz zaman tamamlayın."
         },
         "description": "Listelerinizi seçmek bu sayfanın üstündeki \"Liste ekle\" düğmesi. Buradakiler onun arkasındaki ayarlar."
       }

@@ -19,9 +19,9 @@ from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import STATUS_COMPLETED
 from .coordinator import ProgressCoveCoordinator
-from .pending import needs_window
+from .pending import complete
 from .names import display_name
-from .helpers import _parse_due, _surfaced, repeats
+from .helpers import _parse_due, surfaced, repeats
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -120,19 +120,11 @@ class ProgressCoveMyDayEntity(CoordinatorEntity[ProgressCoveCoordinator], TodoLi
                     "moved it to its next occurrence. Reopening it here would leave it on the "
                     "wrong day."
                 )
-            with _surfaced("reopen that task"):
+            with surfaced("reopen that task"):
                 await self.coordinator.client.async_uncomplete(uid)
             await self.coordinator.async_refresh()
             return
         if self._status_of(uid) == TodoItemStatus.COMPLETED:
             return
 
-        async def send() -> None:
-            with _surfaced("complete that task"):
-                await self.coordinator.client.async_complete(uid)
-            await self.coordinator.async_refresh()
-
-        self.coordinator.pending.schedule(
-            uid, send, self.async_write_ha_state,
-            hold=needs_window(self.coordinator.data.by_id.get(uid, {})),
-        )
+        complete(self.coordinator, uid, self.async_write_ha_state)

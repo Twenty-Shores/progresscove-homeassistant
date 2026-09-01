@@ -9,14 +9,32 @@ import { readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 
+let loads = 0;
+
 const CARDS = join(
   dirname(fileURLToPath(import.meta.url)),
   "..", "..", "custom_components", "progresscove", "frontend"
 );
 
-export async function loadCard(filename) {
-  const defined = new Map();
-  globalThis.customElements = { define: (name, cls) => defined.set(name, cls) };
+export async function loadCard(filename, registry) {
+  // Passing a registry back in re-evaluates a module against names it already registered, which is
+  // what Home Assistant does when it reloads its frontend resources.
+  const defined = registry ?? new Map();
+  // define() THROWS on a name already taken, as the real CustomElementRegistry does. A Map.set here
+  // would overwrite silently, and a card that registers unconditionally would pass a test it fails
+  // in a browser.
+  globalThis.customElements = {
+    define: (name, cls) => {
+      if (defined.has(name)) {
+        throw new DOMException(
+          `Failed to execute 'define' on 'CustomElementRegistry': the name "${name}" has already been used`,
+          "NotSupportedError",
+        );
+      }
+      defined.set(name, cls);
+    },
+    get: (name) => defined.get(name),
+  };
   globalThis.window = globalThis;
   globalThis.HTMLElement = class {
     constructor() {
@@ -46,9 +64,14 @@ export async function loadCard(filename) {
   };
 
   const source = await readFile(join(CARDS, filename), "utf8");
+  // A trailing comment makes each load a distinct specifier: Node caches modules by URL, so
+  // re-importing the same source would return the cached namespace without re-running it, and a
+  // test of what happens on a second evaluation would never evaluate anything twice.
+  loads += 1;
+  const unique = `${source}\n//${loads}`;
   // Evaluated as a module so top-level `class`/`function` stay scoped to it.
   const module = await import(
-    `data:text/javascript;base64,${Buffer.from(source).toString("base64")}`
+    `data:text/javascript;base64,${Buffer.from(unique).toString("base64")}`
   );
   return { defined, module };
 }

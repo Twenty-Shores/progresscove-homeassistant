@@ -47,7 +47,9 @@ from .const import (
     DEFAULT_MIN_DEPTH,
     DEFAULT_NODE_SORT,
     CONF_AUTO_PRUNE,
+    CONF_COMPLETE_EARLY,
     DEFAULT_AUTO_PRUNE,
+    DEFAULT_COMPLETE_EARLY,
     DEFAULT_SCAN_MINUTES,
     MAX_SCAN_MINUTES,
     MIN_SCAN_MINUTES,
@@ -555,6 +557,12 @@ class ProgressCoveOptionsFlow(OptionsFlow):
                             sort=False,
                         )
                     ),
+                    vol.Optional(
+                        CONF_COMPLETE_EARLY,
+                        default=options.get(
+                            CONF_COMPLETE_EARLY, DEFAULT_COMPLETE_EARLY
+                        ),
+                    ): selector.BooleanSelector(),
                     vol.Optional(
                         CONF_AUTO_PRUNE,
                         default=options.get(CONF_AUTO_PRUNE, DEFAULT_AUTO_PRUNE),

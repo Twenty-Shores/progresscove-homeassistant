@@ -24,6 +24,7 @@ from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import (
+    CLOSED_STATUSES,
     ATTR_ITEMS_DONE,
     ATTR_NODE_ID,
     ATTR_ITEMS_COMPLETE,
@@ -38,7 +39,7 @@ from .coordinator import ProgressCoveCoordinator
 from .my_day import ProgressCoveMyDayEntity
 from .pending import needs_window
 from .names import display_name
-from .helpers import _parse_due, _surfaced
+from .helpers import _parse_due, surfaced
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -138,7 +139,13 @@ class ProgressCoveTodoListEntity(CoordinatorEntity[ProgressCoveCoordinator], Tod
                     {
                         "uid": s["id"],
                         "summary": display_name(s["name"]),
-                        "done": s.get("status") == STATUS_COMPLETED,
+                        # Pending counts as done here for the same reason it does on the task
+                        # above: the row is what the user just clicked, and waiting for the server
+                        # to confirm leaves it visibly unchanged for a round trip.
+                        "done": (
+                            self.coordinator.pending.is_pending(s["id"])
+                            or s.get("status") in CLOSED_STATUSES
+                        ),
                     }
                     for s in subs
                 ]
@@ -172,7 +179,7 @@ class ProgressCoveTodoListEntity(CoordinatorEntity[ProgressCoveCoordinator], Tod
         parent = self.coordinator.data.by_id.get(self._project_id, {})
         depth = int(parent.get("depth", 2)) + 1
         try:
-            with _surfaced("add that task"):
+            with surfaced("add that task"):
                 await self.coordinator.client.async_create_task(
                     self._project_id, item.summary or "", due_at=due, depth=depth
                 )
@@ -212,7 +219,7 @@ class ProgressCoveTodoListEntity(CoordinatorEntity[ProgressCoveCoordinator], Tod
                 if now_done:
                     # Held for the undo window, as on the switch and My Day.
                     async def send() -> None:
-                        with _surfaced("complete that task"):
+                        with surfaced("complete that task"):
                             await self.coordinator.client.async_complete(uid)
                         await self.coordinator.async_refresh()
 
@@ -225,7 +232,7 @@ class ProgressCoveTodoListEntity(CoordinatorEntity[ProgressCoveCoordinator], Tod
                         uid, send, rerender, hold=needs_window(current),
                     )
                 elif not self.coordinator.pending.undo(uid):
-                    with _surfaced("update that task"):
+                    with surfaced("update that task"):
                         await self.coordinator.client.async_uncomplete(uid)
                 else:
                     self._apply()
@@ -238,7 +245,7 @@ class ProgressCoveTodoListEntity(CoordinatorEntity[ProgressCoveCoordinator], Tod
                     changes["name"] = new_name
                 if due_changed:
                     changes["due_at"] = item.due.isoformat() if item.due else None
-                with _surfaced("update that task"):
+                with surfaced("update that task"):
                     await self.coordinator.client.async_update_task(uid, **changes)
         finally:
             await self.coordinator.async_refresh()
@@ -247,7 +254,7 @@ class ProgressCoveTodoListEntity(CoordinatorEntity[ProgressCoveCoordinator], Tod
         # A later delete can fail after earlier ones are gone, so the refresh in `finally` shows
         # exactly what survived.
         try:
-            with _surfaced("delete that task"):
+            with surfaced("delete that task"):
                 for uid in uids:
                     await self.coordinator.client.async_delete(uid)
         finally:

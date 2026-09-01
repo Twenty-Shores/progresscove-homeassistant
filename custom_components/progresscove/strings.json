@@ -73,14 +73,16 @@
           "max_depth": "…down to tier",
           "node_sort": "Show tasks as",
           "scan_minutes": "Minutes between checks",
-          "auto_prune": "Remove entities when their task is deleted"
+          "auto_prune": "Remove entities when their task is deleted",
+          "complete_early": "Allow completing before the due date"
         },
         "data_description": {
           "min_depth": "The highest level a list can come from.",
           "max_depth": "The deepest. Set both the same to pick from just that one.",
           "scan_minutes": "How often to look for changes made elsewhere: in the app, on the web, on your phone. Anything you do from Home Assistant is sent straight away and never waits for this.",
           "node_sort": "Task name first is easier to type; full path is easier to browse by project.",
-          "auto_prune": "Checks with the server first and removes a button, switch or sensor only once it confirms the task is gone. Turn this off to keep them and be told instead."
+          "auto_prune": "Checks with the server first and removes a button, switch or sensor only once it confirms the task is gone. Turn this off to keep them and be told instead.",
+          "complete_early": "Off: a task that is not due yet is refused, because completing a repeat early moves it past the occurrence you were waiting for. On: complete anything whenever you like."
         }
       }
     }

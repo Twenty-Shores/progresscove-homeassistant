@@ -14,6 +14,11 @@ import asyncio
 from collections.abc import Awaitable, Callable
 import logging
 
+from homeassistant.exceptions import HomeAssistantError
+
+from .const import CONF_COMPLETE_EARLY, DEFAULT_COMPLETE_EARLY, STATUS_COMPLETED
+from .helpers import can_complete, due_date, surfaced, timezone_of
+
 _LOGGER = logging.getLogger(__name__)
 
 # Long enough to reach for undo, short enough that nobody wonders whether it worked.
@@ -27,6 +32,47 @@ def needs_window(node: dict) -> bool:
     afterwards, so holding it only made a checkbox sit unchanged for ten seconds.
     """
     return bool(node.get("recurrence_rule"))
+
+
+def refuse_if_too_early(coordinator, node, name: str, hass) -> None:
+    """Raise if this task is not due yet, unless the user opted into completing early.
+
+    Completing an occurrence that has not arrived rolls a repeat past the real one, so the task
+    the user was waiting for never appears. Refused by default on every surface; a switch can be
+    turned off by an automation or a voice assistant without anyone deciding to, which is exactly
+    when a silent roll would go unnoticed.
+    """
+    if coordinator.config_entry.options.get(CONF_COMPLETE_EARLY, DEFAULT_COMPLETE_EARLY):
+        return
+    if can_complete(node, hass):
+        return
+    due = due_date(node, timezone_of(hass))
+    raise HomeAssistantError(
+        f"{name} is not due yet, next on {due.isoformat() if due else 'a later date'}."
+    )
+
+
+def complete(coordinator, node_id: str, repaint) -> None:
+    """Complete a task through the undo window, whichever surface asked.
+
+    Home Assistant makes us publish a button and a switch for what is one action, and services and
+    the My Day list ask for the same thing again. They differ only in how the surface repaints, so
+    the completion itself lives here: an entity that skipped the window would send instantly while
+    its neighbour held, and the same task would behave differently depending on which tile the user
+    happened to press.
+
+    Completing an already-completed task is a no-op rather than a second call.
+    """
+    node = coordinator.data.by_id.get(node_id, {})
+    if node.get("status") == STATUS_COMPLETED:
+        return
+
+    async def send() -> None:
+        with surfaced("complete that task"):
+            await coordinator.client.async_complete(node_id)
+        await coordinator.async_refresh()
+
+    coordinator.pending.schedule(node_id, send, repaint, hold=needs_window(node))
 
 
 class PendingCompletions:

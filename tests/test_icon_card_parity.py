@@ -3,6 +3,7 @@
 `actionable` decides lit-vs-dimmed and is computed separately in button.py and switch.py, so this
 asserts the two agree node-for-node rather than trusting they were written the same way.
 """
+import asyncio
 import importlib.util
 import sys
 import types
@@ -167,6 +168,108 @@ class IconCardParity(unittest.TestCase):
         _, later = _pair(dict(CASES["due next week"]))
         self.assertFalse(later.extra_state_attributes["actionable"])
 
+
+
+class CompletionParityTest(unittest.TestCase):
+    """Pressing the button and ticking the switch are one action, so they must send alike.
+
+    Home Assistant makes us publish two entities for it; ProgressCove has only "complete". The
+    button used to call the client directly, so a repeat pressed on a tile skipped the undo window
+    that the same repeat got from its switch.
+    """
+
+    REPEAT = {"id": "n", "name": "Bins", "due_at": _at(0), "recurrence_rule": "FREQ=WEEKLY"}
+
+    def _rig(self, node, complete_early=False):
+        pending = _load("pending")
+        pending.UNDO_WINDOW_SECONDS = 0.05
+        sent = []
+
+        class Client:
+            async def async_complete(self, node_id):
+                sent.append(node_id)
+
+        class Entry:
+            options = {"complete_early": complete_early}
+
+        button, switch = _pair(dict(node))
+        shared = pending.PendingCompletions()
+        for entity in (button, switch):
+            entity.coordinator.pending = shared
+            entity.coordinator.client = Client()
+            entity.coordinator.config_entry = Entry()
+            entity.coordinator.async_refresh = lambda: asyncio.sleep(0)
+            entity.async_write_ha_state = lambda: None
+        return button, switch, sent
+
+    async def _complete(self, entity, name):
+        if name == "button":
+            await entity.async_press()
+        else:
+            await entity.async_turn_off()
+
+    NOT_YET = {"id": "n", "name": "Bins", "due_at": _at(7), "recurrence_rule": "FREQ=WEEKLY"}
+
+    def test_a_task_that_is_not_due_is_refused_on_both(self):
+        """Completing an occurrence that has not arrived rolls a repeat past the real one."""
+        async def run():
+            for name in ("button", "switch"):
+                with self.subTest(name):
+                    button, switch, sent = self._rig(self.NOT_YET)
+                    entity = button if name == "button" else switch
+                    with self.assertRaises(Exception):
+                        await self._complete(entity, name)
+                    await asyncio.sleep(0.2)
+                    self.assertEqual(sent, [], f"{name}: completed a task that is not due")
+        asyncio.run(run())
+
+    def test_the_option_allows_completing_early_on_both(self):
+        async def run():
+            for name in ("button", "switch"):
+                with self.subTest(name):
+                    button, switch, sent = self._rig(self.NOT_YET, complete_early=True)
+                    await self._complete(button if name == "button" else switch, name)
+                    await asyncio.sleep(0.2)
+                    self.assertEqual(len(sent), 1, f"{name}: the opt-in did not take effect")
+        asyncio.run(run())
+
+    def test_a_repeat_is_held_whichever_entity_completes_it(self):
+        async def run():
+            for name in ("button", "switch"):
+                with self.subTest(name):
+                    button, switch, sent = self._rig(self.REPEAT)
+                    if name == "button":
+                        await button.async_press()
+                    else:
+                        await switch.async_turn_off()
+                    self.assertEqual(sent, [], f"{name}: sent before the undo window closed")
+                    await asyncio.sleep(0.2)
+                    self.assertEqual(len(sent), 1, f"{name}: never sent after the window")
+        asyncio.run(run())
+
+
+class PendingTileTest(unittest.TestCase):
+    """A tile must dim the moment it is pressed, not when the server catches up.
+
+    A repeat holds its completion for the undo window, so nothing about the node changes for ten
+    seconds. `actionable` read the due date alone, which is still today, so the tile stayed lit
+    and a press looked like it had done nothing.
+    """
+
+    REPEAT = {"id": "n", "name": "Bins", "due_at": _at(0), "recurrence_rule": "FREQ=WEEKLY"}
+
+    def test_a_pending_task_is_not_actionable(self):
+        for entity, name in zip(_pair(dict(self.REPEAT), pending=True), ("button", "switch")):
+            with self.subTest(name):
+                self.assertFalse(
+                    entity.extra_state_attributes["actionable"],
+                    f"{name}: the tile would stay lit for the whole undo window",
+                )
+
+    def test_the_same_task_is_actionable_once_settled(self):
+        for entity, name in zip(_pair(dict(self.REPEAT)), ("button", "switch")):
+            with self.subTest(name):
+                self.assertTrue(entity.extra_state_attributes["actionable"])
 
 
 class UndatedTaskTest(unittest.TestCase):

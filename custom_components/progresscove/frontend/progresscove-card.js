@@ -106,7 +106,11 @@ class ProgressCoveCardEditor extends HTMLElement {
   }
 }
 
-customElements.define("progresscove-card-editor", ProgressCoveCardEditor);
+// Home Assistant can evaluate a card module more than once in a page's lifetime: it re-registers
+// its frontend resources without tearing the document down. A second define() throws
+// NotSupportedError, which aborts the rest of the module and leaves the card unrenderable until a
+// full reload, so registering is skipped when the name is already taken.
+if (!customElements.get("progresscove-card-editor")) customElements.define("progresscove-card-editor", ProgressCoveCardEditor);
 
 class ProgressCoveCard extends HTMLElement {
   static getStubConfig() {
@@ -137,6 +141,10 @@ class ProgressCoveCard extends HTMLElement {
    *
    *  Re-fetched when a list's state or counts change, not on every hass update: HA sets `hass` on
    *  every state change in the house, which would put two calls per project behind a light switch.
+   *
+   *  The NESTED counts are part of that signal, not just the project's own: ticking a subtask
+   *  leaves items_done alone, so watching only those left the card showing a stale list until the
+   *  page was reloaded.
    */
   async _refresh() {
     const ids = this._config?.entities ?? [];
@@ -145,7 +153,10 @@ class ProgressCoveCard extends HTMLElement {
     const stamp = ids
       .map(id => {
         const st = this._hass.states[id];
-        return st ? `${id}:${st.state}:${st.attributes?.items_done}/${st.attributes?.items_total}` : id;
+        if (!st) return id;
+        const a = st.attributes ?? {};
+        return `${id}:${st.state}:${a.items_done}/${a.items_total}` +
+               `:${a.nested_items_done}/${a.nested_items_total}`;
       })
       .join("|");
     if (stamp === this._stamp) return;
@@ -153,6 +164,10 @@ class ProgressCoveCard extends HTMLElement {
 
     const fetched = await Promise.all(ids.map(id => this._fetchOne(id)));
     this._fetched = Object.fromEntries(fetched.filter(Boolean));
+    // A click is held until the server reports the same thing. Dropping it when the service call
+    // returned was too early: that only means the command was accepted, so the row fell back to
+    // the pre-click data for the rest of the round trip and visibly blinked.
+    this._settleOptimistic();
     this._render();
   }
 
@@ -205,12 +220,12 @@ class ProgressCoveCard extends HTMLElement {
           tasks: (loaded?.items ?? []).map(item => ({
             name: item.summary ?? item.name,
             due: item.due ?? null,
-            done: item.status === "completed" || item.done === true,
+            done: this._shownDone(item.uid, item.status === "completed" || item.done === true),
             uid: item.uid,
             subtasks: (nested[item.uid] ?? []).map(sub => ({
               uid: sub.uid,
               name: sub.summary ?? sub.name,
-              done: sub.done === true || sub.status === "completed",
+              done: this._shownDone(sub.uid, sub.done === true || sub.status === "completed"),
             })),
           })),
         };
@@ -287,6 +302,30 @@ class ProgressCoveCard extends HTMLElement {
     }
   }
 
+  /** Drop every held click that the freshly fetched data now agrees with.
+   *
+   *  Read from `_fetched` rather than `_items()`, which has the held clicks applied to it already
+   *  and so would always agree with itself.
+   */
+  _settleOptimistic() {
+    if (!this._optimistic || !Object.keys(this._optimistic).length) return;
+    for (const loaded of Object.values(this._fetched ?? {})) {
+      for (const item of loaded.items ?? []) {
+        const rows = [item, ...(loaded.subtasks?.[item.uid] ?? [])];
+        for (const row of rows) {
+          const fromServer = row.status === "completed" || row.done === true;
+          if (this._optimistic[row.uid] === fromServer) delete this._optimistic[row.uid];
+        }
+      }
+    }
+  }
+
+  /** What a row should show: the click the user just made, until the server has caught up. */
+  _shownDone(uid, fromServer) {
+    const pending = this._optimistic?.[uid];
+    return pending === undefined ? fromServer : pending;
+  }
+
   /** Complete or reopen ANY node, whatever its depth.
    *
    *  Not todo.update_item, which resolves against the entity's own items and cannot reach a
@@ -294,9 +333,37 @@ class ProgressCoveCard extends HTMLElement {
    */
   async _toggle(nodeId, done) {
     if (!nodeId) return;
-    await this._hass.callService("progresscove", done ? "reopen" : "complete", {
-      node_id: nodeId,
-    });
+    // Paint the tick before the round trip. The service call, the entity update and this card's
+    // own re-fetch are three hops, and a checkbox that sits unchanged for all of them reads as a
+    // click that missed. The next render draws from the entity either way, so a rejected write
+    // corrects itself rather than leaving a tick that was never real.
+    // Completing a task closes its open children server-side, and reopening it reopens them, so
+    // the whole subtree follows the click. Painting only the clicked row left the children
+    // visibly unchanged for the round trip, which is why a parent felt slower than a subtask.
+    const touched = [nodeId, ...this._childrenOf(nodeId)];
+    const held = { ...this._optimistic };
+    for (const id of touched) held[id] = !done;
+    this._optimistic = held;
+    this._render();
+    try {
+      await this._hass.callService("progresscove", done ? "reopen" : "complete", {
+        node_id: nodeId,
+      });
+    } catch (err) {
+      // The write failed, so every row must go back to what the server still holds.
+      for (const id of touched) delete this._optimistic[id];
+      this._render();
+      throw err;
+    }
+  }
+
+  /** The uids under a task, empty for a subtask or an unknown id. */
+  _childrenOf(nodeId) {
+    for (const loaded of Object.values(this._fetched ?? {})) {
+      const kids = loaded.subtasks?.[nodeId];
+      if (kids) return kids.map(s => s.uid);
+    }
+    return [];
   }
 
   _project(p) {
@@ -366,11 +433,14 @@ function esc(s) {
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-customElements.define("progresscove-card", ProgressCoveCard);
+if (!customElements.get("progresscove-card")) customElements.define("progresscove-card", ProgressCoveCard);
 
 window.customCards = window.customCards || [];
-window.customCards.push({
-  type: "progresscove-card",
-  name: "ProgressCove",
-  description: "Projects, tasks and subtasks with progress, the calm view.",
-});
+// Guarded for the same reason define() is: a second evaluation would list the card twice in the
+// picker.
+if (!window.customCards.some((c) => c.type === "progresscove-card"))
+  window.customCards.push({
+    type: "progresscove-card",
+    name: "ProgressCove",
+    description: "Projects, tasks and subtasks with progress, the calm view.",
+  });

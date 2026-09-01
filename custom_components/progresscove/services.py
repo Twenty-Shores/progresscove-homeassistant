@@ -19,9 +19,9 @@ from homeassistant.exceptions import ServiceValidationError
 from homeassistant.helpers import config_validation as cv
 
 from .const import DOMAIN, STATUS_COMPLETED
-from .pending import needs_window
+from .pending import complete
 from .names import display_name
-from .helpers import _surfaced, repeats
+from .helpers import surfaced, repeats
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -51,20 +51,9 @@ def _coordinator_for(hass: HomeAssistant, node_id: str):
 async def _complete(call: ServiceCall) -> None:
     node_id = call.data[ATTR_NODE_ID]
     coordinator = _coordinator_for(call.hass, node_id)
-    if coordinator.data.by_id[node_id].get("status") == STATUS_COMPLETED:
-        return
-
-    async def send() -> None:
-        with _surfaced("complete that task"):
-            await coordinator.client.async_complete(node_id)
-        await coordinator.async_refresh()
-
-    # async_update_listeners, not a no-op: it repaints every entity at once, and without it the
-    # card waits for the window to close before the tick appears.
-    coordinator.pending.schedule(
-        node_id, send, coordinator.async_update_listeners,
-        hold=needs_window(coordinator.data.by_id[node_id]),
-    )
+    # async_update_listeners repaints every entity at once; without it the card waits for the
+    # window to close before the tick appears.
+    complete(coordinator, node_id, coordinator.async_update_listeners)
 
 
 async def _reopen(call: ServiceCall) -> None:
@@ -84,7 +73,7 @@ async def _reopen(call: ServiceCall) -> None:
             f"{display_name(node.get('name')) or 'That task'} repeats, so completing it moved "
             "it to its next occurrence. Reopening it here would leave it on the wrong day."
         )
-    with _surfaced("reopen that task"):
+    with surfaced("reopen that task"):
         await coordinator.client.async_uncomplete(node_id)
     await coordinator.async_refresh()
 

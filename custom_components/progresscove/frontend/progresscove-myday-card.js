@@ -74,7 +74,11 @@ class ProgressCoveMyDayCardEditor extends HTMLElement {
   }
 }
 
-customElements.define("progresscove-myday-card-editor", ProgressCoveMyDayCardEditor);
+// Home Assistant can evaluate a card module more than once in a page's lifetime: it re-registers
+// its frontend resources without tearing the document down. A second define() throws
+// NotSupportedError, which aborts the rest of the module and leaves the card unrenderable until a
+// full reload, so registering is skipped when the name is already taken.
+if (!customElements.get("progresscove-myday-card-editor")) customElements.define("progresscove-myday-card-editor", ProgressCoveMyDayCardEditor);
 
 class ProgressCoveMyDayCard extends HTMLElement {
   static getStubConfig() {
@@ -208,11 +212,14 @@ function esc(s) {
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-customElements.define("progresscove-myday-card", ProgressCoveMyDayCard);
+if (!customElements.get("progresscove-myday-card")) customElements.define("progresscove-myday-card", ProgressCoveMyDayCard);
 
 window.customCards = window.customCards || [];
-window.customCards.push({
-  type: "progresscove-myday-card",
-  name: "ProgressCove My Day",
-  description: "Today's work in sections: today, ongoing, reminders.",
-});
+// Guarded for the same reason define() is: a second evaluation would list the card twice in the
+// picker.
+if (!window.customCards.some((c) => c.type === "progresscove-myday-card"))
+  window.customCards.push({
+    type: "progresscove-myday-card",
+    name: "ProgressCove My Day",
+    description: "Today's work in sections: today, ongoing, reminders.",
+  });

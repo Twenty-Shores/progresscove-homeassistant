@@ -132,7 +132,11 @@ class ProgressCoveIconCardEditor extends HTMLElement {
   }
 }
 
-customElements.define("progresscove-icon-card-editor", ProgressCoveIconCardEditor);
+// Home Assistant can evaluate a card module more than once in a page's lifetime: it re-registers
+// its frontend resources without tearing the document down. A second define() throws
+// NotSupportedError, which aborts the rest of the module and leaves the card unrenderable until a
+// full reload, so registering is skipped when the name is already taken.
+if (!customElements.get("progresscove-icon-card-editor")) customElements.define("progresscove-icon-card-editor", ProgressCoveIconCardEditor);
 
 class ProgressCoveIconCard extends HTMLElement {
   /** A new card starts EMPTY: filling it with every button would make the common case, one
@@ -340,11 +344,14 @@ function esc(s) {
     ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
 }
 
-customElements.define("progresscove-icon-card", ProgressCoveIconCard);
+if (!customElements.get("progresscove-icon-card")) customElements.define("progresscove-icon-card", ProgressCoveIconCard);
 
 window.customCards = window.customCards || [];
-window.customCards.push({
-  type: "progresscove-icon-card",
-  name: "ProgressCove Icons",
-  description: "Tappable task icons, lit when due, dimmed until their day.",
-});
+// Guarded for the same reason define() is: a second evaluation would list the card twice in the
+// picker.
+if (!window.customCards.some((c) => c.type === "progresscove-icon-card"))
+  window.customCards.push({
+    type: "progresscove-icon-card",
+    name: "ProgressCove Icons",
+    description: "Tappable task icons, lit when due, dimmed until their day.",
+  });

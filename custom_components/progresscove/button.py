@@ -15,14 +15,14 @@ from typing import Any
 from homeassistant.components.button import ButtonEntity
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
-from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
 from .const import STATUS_COMPLETED
 from .coordinator import ProgressCoveCoordinator
+from .pending import complete, refuse_if_too_early
 from .names import display_name
-from .helpers import _due_date, _surfaced, _zone, can_complete, is_due
+from .helpers import due_date, timezone_of, is_due
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -80,17 +80,24 @@ class ProgressCoveTaskButton(CoordinatorEntity[ProgressCoveCoordinator], ButtonE
         return bool(self._node)
 
     @property
-    def _is_due(self) -> bool:
-        """Whether today is the day. Shared with the switch, so a tile drawn from either entity
-        dims on the same rule."""
+    def _actionable(self) -> bool:
+        """Whether pressing this would do anything, which is what a card tile lights up for.
+
+        Mirrors the switch, so a tile drawn from either entity dims on the same rule. A pending
+        completion is not actionable: the user already pressed it, and the server has not rolled
+        the occurrence yet, so asking `is_due` alone would keep the tile lit and make the surface
+        look frozen for the whole undo window.
+        """
+        if self.coordinator.pending.is_pending(self._node_id):
+            return False
         return is_due(self._node, self.hass)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Enough for a card to say WHEN without pressing anything."""
-        zone = _zone(self.hass)
+        zone = timezone_of(self.hass)
         node = self._node
-        due = _due_date(node, zone)
+        due = due_date(node, zone)
         today = datetime.now(zone).date()
         return {
             "node_id": self._node_id,
@@ -98,7 +105,7 @@ class ProgressCoveTaskButton(CoordinatorEntity[ProgressCoveCoordinator], ButtonE
             "due_date": due.isoformat() if due else None,
             "due_today": bool(due and due == today),
             # What a card switches its icon on: lit when there is something to do, dim otherwise.
-            "actionable": self._is_due,
+            "actionable": self._actionable,
             "days_until": (due - today).days if due else None,
             # A button press is an event and the entity never changes state, so to TRIGGER on a
             # completion use the task's switch instead.
@@ -113,15 +120,12 @@ class ProgressCoveTaskButton(CoordinatorEntity[ProgressCoveCoordinator], ButtonE
         would move the schedule forward and quietly skip the real one. A task with no due date is
         pressed whenever the user likes. Said out loud rather than ignored, a press that appears to
         do nothing is the worse failure.
+
+        A repeat goes through the undo window like everywhere else, so pressing the button and
+        ticking the same task's switch behave the same.
         """
-        if not can_complete(self._node, self.hass):
-            raise HomeAssistantError(
-                f"{self._attr_name} is not due yet, next on "
-                f"{self.extra_state_attributes['due_date']}."
-            )
-        with _surfaced("complete that task"):
-            await self.coordinator.client.async_complete(self._node_id)
-        await self.coordinator.async_refresh()
+        refuse_if_too_early(self.coordinator, self._node, self._attr_name, self.hass)
+        complete(self.coordinator, self._node_id, self.async_write_ha_state)
 
     @callback
     def _handle_coordinator_update(self) -> None:

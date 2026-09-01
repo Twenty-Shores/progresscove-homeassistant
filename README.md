@@ -133,6 +133,11 @@ so the window is the one chance to undo it. An ordinary task is sent immediately
 reopens perfectly well afterwards. Holding it would have made every tick feel slow for a
 protection it did not need.
 
+**A task that is not due yet is refused.** Completing an occurrence before it arrives moves a
+repeat past the one you were waiting for, so the button and the switch both say no and tell you
+the date it is next due. If you would rather decide that for yourself, turn on *Allow completing
+before the due date* in the integration's options.
+
 **Completing a repeat is one-way.** A repeating task does not "finish". Completing it moves it to
 its next occurrence, and there is no way back to the one you just closed. An ordinary task reopens
 freely, exactly as in the app.
@@ -149,14 +154,16 @@ claim that it can be put back.
 
 ## Cards
 
-Three cards ship with the integration and register themselves, so they are in the card picker as
-soon as it is set up. Nothing to copy, no Lovelace resource to add: search for "ProgressCove" under
-**Edit → Add card**, or paste one of these under **Edit → Add card → Manual**.
+Three cards ship with the integration and register themselves as dashboard resources, so they are
+in the card picker as soon as it is set up. Nothing to copy and nothing to add by hand: search for
+"ProgressCove" under **Edit → Add card**, or paste one of these under **Edit → Add card → Manual**.
 
-If a card does not appear after an upgrade, refresh the page. They are cached against the
-integration version, so a hard refresh is only needed when that version has not changed.
+Their urls carry a digest of the card files, so an upgrade that changes a card retires the copy
+your browser is holding on its own.
 
 ### My Day
+
+![The My Day card: today, ongoing and reminders in three sections](docs/images/my-day.png)
 
 ```yaml
 type: custom:progresscove-myday-card
@@ -168,6 +175,8 @@ so a nested one is not stranded without context. Tapping ticks it off; the integ
 write for ten seconds, so tapping again inside that window undoes it.
 
 ### Icons
+
+![The icon card: a wall of task tiles, lit when due and dimmed otherwise](docs/images/icon-card.gif)
 
 ```yaml
 type: custom:progresscove-icon-card
@@ -182,6 +191,8 @@ One tile per task, drawn as its emoji. A tile is lit and pressable only on the d
 other tile is dimmed and shows when it is next due.
 
 ### Projects
+
+![The projects card: tasks with their subtasks and progress](docs/images/list-card.png)
 
 ```yaml
 type: custom:progresscove-card

@@ -34,7 +34,7 @@ def _parse_due(value: str | None) -> datetime | date | None:
 
 
 @contextmanager
-def _surfaced(action: str) -> Iterator[None]:
+def surfaced(action: str) -> Iterator[None]:
     """Make every write failure reach the person who asked for it.
 
     A rejection the server explained is shown in its own words; anything unclassifiable still says
@@ -58,7 +58,7 @@ def repeats(node: dict) -> bool:
     return bool(node.get("recurrence_rule"))
 
 
-def _zone(hass: HomeAssistant) -> ZoneInfo:
+def timezone_of(hass: HomeAssistant) -> ZoneInfo:
     """The house's timezone. "Due today" is a question about the wall calendar, not about UTC."""
     try:
         return ZoneInfo(hass.config.time_zone)
@@ -66,7 +66,7 @@ def _zone(hass: HomeAssistant) -> ZoneInfo:
         return ZoneInfo("UTC")
 
 
-def _due_date(node: dict[str, Any], zone: ZoneInfo) -> date | None:
+def due_date(node: dict[str, Any], zone: ZoneInfo) -> date | None:
     """The calendar day this task is due, as a person would name it.
 
     A date-only due is stored as UTC midnight, which is a DAY rather than an instant. Converting
@@ -102,9 +102,9 @@ def is_due(node: dict, hass: HomeAssistant) -> bool:
 
     if not node or node.get("status") == STATUS_COMPLETED:
         return False
-    zone = _zone(hass)
-    due = _due_date(node, zone)
-    return due is not None and due <= datetime.now(zone).date()
+    tz = timezone_of(hass)
+    due = due_date(node, tz)
+    return due is not None and due <= datetime.now(tz).date()
 
 
 def can_complete(node: dict, hass: HomeAssistant) -> bool:
@@ -117,9 +117,9 @@ def can_complete(node: dict, hass: HomeAssistant) -> bool:
 
     if not node or node.get("status") == STATUS_COMPLETED:
         return False
-    zone = _zone(hass)
-    due = _due_date(node, zone)
-    return due is None or due <= datetime.now(zone).date()
+    tz = timezone_of(hass)
+    due = due_date(node, tz)
+    return due is None or due <= datetime.now(tz).date()
 
 
 def scan_minutes(options: dict) -> int:

@@ -225,6 +225,25 @@ class ServiceTest(unittest.TestCase):
         asyncio.run(run())
 
 
+class CancelledChildTest(unittest.TestCase):
+    """A child closed by its parent is closed, and must draw as such.
+
+    Completing a task closes its still-open children as CANCELLED rather than COMPLETED: they were
+    never done, but they are not open either. A surface that knows only COMPLETED drew them as
+    unticked boxes under a ticked parent.
+    """
+
+    def test_cancelled_counts_as_closed(self):
+        const = sys.modules["progresscove.const"]
+        self.assertIn(const.STATUS_CANCELLED, const.CLOSED_STATUSES)
+        self.assertIn(const.STATUS_COMPLETED, const.CLOSED_STATUSES)
+
+    def test_an_open_status_is_not_closed(self):
+        const = sys.modules["progresscove.const"]
+        for open_status in (0, 1, 3):
+            self.assertNotIn(open_status, const.CLOSED_STATUSES)
+
+
 class MinimumVersionTest(unittest.TestCase):
     """Below the floor the config flow fails on a missing attribute, which tells the user nothing.
 
