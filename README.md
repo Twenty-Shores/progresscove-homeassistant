@@ -13,7 +13,19 @@ What it adds to Home Assistant:
 - Three dashboard cards (My Day, icons, projects) that register themselves. Nothing to add by hand.
 
 <!-- hero: replace with animated gif -->
+![The icon card: a wall of task tiles, lit when due and dimmed otherwise](docs/images/icon-card.gif)
+
+A tile is lit when there is something to do and dimmed when there is not, so a wall panel reads
+from across the room.
+
 ![The My Day card: today, ongoing and reminders in three sections](docs/images/my-day.png)
+
+My Day gathers what is due today, what is ongoing, and the reminders, in the three sections the
+app uses.
+
+![The projects card: tasks with their subtasks and progress](docs/images/list-card.png)
+
+The projects card carries subtasks and their counts, which the stock to-do card flattens away.
 
 ## Status
 
@@ -27,8 +39,9 @@ of what varies between installs is in those three answers.
 <!-- add reddit thread url after posting -->
 Beta discussion: [link]
 
-ProgressCove is a paid app with a 14-day trial. During the beta a new account gets 45 days free,
-with no card required.
+ProgressCove is a paid app with a 14-day trial. During the beta, testers get another 30 days on
+top of that through [this link](https://app.progresscove.com/claim/habeta), so a new account starts
+with 45 days. No card, and nothing to cancel.
 
 ## Requirements
 
