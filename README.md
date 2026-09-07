@@ -1,7 +1,34 @@
 # ProgressCove for Home Assistant
 
-Your tasks on the wall: to-do lists you can tick off, buttons for the recurring jobs, and a My Day
-card that shows what actually matters today.
+A Home Assistant integration for [ProgressCove](https://progresscove.com), a task management
+platform with web, iOS and Android clients. It reads and writes the same tasks those clients do, so
+it needs a ProgressCove account.
+
+What it adds to Home Assistant:
+
+- To-do list entities for whichever parts of your tree you pick, so tasks are tickable from a
+  dashboard or a voice assistant.
+- Tasks as wall buttons or switches, for the recurring jobs you want one press away.
+- Progress sensors, so "this project is finished" is an ordinary numeric trigger.
+- Three dashboard cards (My Day, icons, projects) that register themselves. Nothing to add by hand.
+
+<!-- hero: replace with animated gif -->
+![The My Day card: today, ongoing and reminders in three sections](docs/images/my-day.png)
+
+## Status
+
+The integration is in beta and looking for testers.
+
+Bugs and feature requests go to
+[GitHub Issues](https://github.com/Twenty-Shores/progresscove-homeassistant/issues). Include your
+Home Assistant version, the integration version, and what you picked in the config flow, since most
+of what varies between installs is in those three answers.
+
+<!-- add reddit thread url after posting -->
+Beta discussion: [link]
+
+ProgressCove is a paid app with a 14-day trial. During the beta a new account gets 45 days free,
+with no card required.
 
 ## Requirements
 
@@ -29,12 +56,14 @@ directory and restart.
 1. In the ProgressCove app, go to **Settings → Advanced → API Tokens** and create one. It is shown
    **once**, so copy it then.
 2. In Home Assistant, **Settings → Devices & Services → Add Integration → ProgressCove**.
-3. Paste the token. The integration shows a pairing code; type that code back into the app to
-   activate the token. Until you do, the token opens nothing.
-4. Choose your lists (see below).
+3. Paste the token. Leave the server address on its default, which is ProgressCove's own servers.
+4. The integration shows a pairing code; type that code back into the app to activate the token.
+   Until you do, the token opens nothing.
+5. Choose your lists (see below).
 
-Self-hosting, or pointing at a dev box? Replace the server address in step 3 with your own. The
-default is ProgressCove's own servers.
+The server address is prefilled and is what almost everyone should leave alone. There is no
+self-hostable ProgressCove server today; the field is there for development against a local
+backend, and so the integration does not bake in an assumption that there never will be one.
 
 A plain `http://` address is allowed, with a warning to confirm first. Your token and your task
 names travel in the open over http, which is fine on a network you trust and control and not fine
@@ -79,7 +108,7 @@ nothing in your data.
 
 | Entity | What it is |
 |---|---|
-| `todo.<list name>` | One per list you picked. Its direct children are the items. |
+| `todo.<list_name>` | One per list you picked. Its direct children are the items. |
 | `todo.my_day` | Today, decided by the server: the same "today" your phone shows. Always present. |
 | `button.<task>` | A task you added as a wall button. Press to complete today's occurrence. |
 | `switch.<task>` | A task as a switch: readable in automations, off to complete. |
@@ -254,6 +283,10 @@ cards read live state and never history.
 A token is **read-only** or **read and write**, chosen when you create it. A read-only token can
 show your tasks and complete nothing, which suits a dashboard you do not want to tap by accident.
 The choice is fixed for the life of the token; to change it, create a new one.
+
+A token can be revoked whenever you like, from the same **API Tokens** screen that created it.
+Revoking cuts off that Home Assistant instance immediately and touches nothing else, so a lost or
+retired box is one tap rather than a password change.
 
 ## License
 
