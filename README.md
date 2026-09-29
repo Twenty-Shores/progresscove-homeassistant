@@ -1,90 +1,86 @@
 # ProgressCove for Home Assistant
 
-A Home Assistant integration for [ProgressCove](https://progresscove.com), a task management
-platform with web, iOS and Android clients. It reads and writes the same tasks those clients do, so
-it needs a ProgressCove account.
+Home Assistant integration for [ProgressCove](https://progresscove.com), a task management platform
+with web, iOS and Android clients. While the integration is MIT licensed and open, access to read
+and write data requires an active subscription. Fully functional 14 day trial is available to test
+features, no card required.
 
-What it adds to Home Assistant:
+Quick HACS Install:
+1. In HACS, open the **⋮** menu and choose **Custom repositories**.
+2. Add `https://github.com/Twenty-Shores/progresscove-homeassistant` as an **Integration**.
+3. Find **ProgressCove** in the list, install it, and restart Home Assistant.
 
-- To-do list entities for whichever parts of your tree you pick, so tasks are tickable from a
-  dashboard or a voice assistant.
-- Tasks as wall buttons or switches, for the recurring jobs you want one press away.
-- Progress sensors, so "this project is finished" is an ordinary numeric trigger.
-- Three dashboard cards (My Day, icons, projects) that register themselves. Nothing to add by hand.
+Integration adds the following to Home Assistant:
+- To-do list entities for any part of the to-do tree, which show up as a standard to-do list, usable
+  by the built-in card, integrations, voice assistants and ProgressCove's own list card.
+- Tasks as buttons or switches, usable in integrations, and best for ProgressCove's own repeating tasks card.
+- Progress sensors, so project states can be tracked as a numeric value.
+- New Dashboard cards:
+  - My Day: Similar to the widget on mobile apps, shows due and ongoing tasks and reminders for the day.
+  - Project card: Shows list view of any selected point in the task tree two descendants deep.
+  - Icon card: This will show selected tasks as buttons that are clickable when due.
 
-<!-- hero: replace with animated gif -->
-![The icon card: a wall of task tiles, lit when due and dimmed otherwise](docs/images/icon-card.gif)
+![Icon card: a wall of task tiles, lit when due and dimmed otherwise](docs/images/icon-card.gif)
 
-A tile is lit when there is something to do and dimmed when there is not, so a wall panel reads
-from across the room.
+A tile is lit and active when due and dimmed and inactive when not, aimed at tracking repeating
+chores.
 
-![The My Day card: today, ongoing and reminders in three sections](docs/images/my-day.png)
+![My Day card: today, ongoing and reminders in three sections](docs/images/my-day.png)
 
-My Day gathers what is due today, what is ongoing, and the reminders, in the three sections the
-app uses.
+My Day shows the day's due tasks, ongoing tasks and any reminders set for the day.
 
-![The projects card: tasks with their subtasks and progress](docs/images/list-card.png)
+![Project card: tasks with their subtasks and progress](docs/images/list-card.png)
 
-The projects card carries subtasks and their counts, which the stock to-do card flattens away.
+Project card shows a tree view of any project, its tasks and subtasks and is interactive.
+Alternative to Home Assistant's built-in to-do card, which flattens the view.
 
 ## Status
 
-The integration is in beta and looking for testers.
+The integration is stable and in daily use, quick add (adding tasks to 'Unsorted' bucket, aka Inbox)
+with a custom card, is being worked on. HACS inclusion is pending, and it's installed as a custom
+repo for now.
 
-Bugs and feature requests go to
-[GitHub Issues](https://github.com/Twenty-Shores/progresscove-homeassistant/issues). Include your
-Home Assistant version, the integration version, and what you picked in the config flow, since most
-of what varies between installs is in those three answers.
-
-<!-- add reddit thread url after posting -->
-Beta discussion: [link]
-
-ProgressCove is a paid app with a 14-day trial. During the beta, testers get another 30 days on
-top of that through [this link](https://app.progresscove.com/claim/habeta), so a new account starts
-with 45 days. No card, and nothing to cancel.
+Please post bugs and feature requests on
+[GitHub Issues](https://github.com/Twenty-Shores/progresscove-homeassistant/issues).
 
 ## Requirements
 
-**Home Assistant 2026.3 or newer.** The config subentries behind *Add a button* / *Add a switch* /
-*Add a progress sensor* are the binding floor; the integration also ships its own icon, which Home
-Assistant reads from a component's `brand/` folder from 2026.3 onward. HACS enforces the version
-before installing, and the integration refuses to set up with a plain message if it is copied in
-manually onto something older.
+- Home Assistant 2026.3 or newer.
+- Active ProgressCove subscription. Fully functional 14 day trial is available to test features, no card required.
+
+Additional technical details are below, generated from the source code.
 
 ## Installation
 
-### HACS
+Not in the HACS default store yet, so add it as a custom repository:
 
 1. In HACS, open the **⋮** menu and choose **Custom repositories**.
 2. Add `https://github.com/Twenty-Shores/progresscove-homeassistant` as an **Integration**.
 3. Find **ProgressCove** in the list, install it, and restart Home Assistant.
 
-### Manually
-
-Copy `custom_components/progresscove/` into your Home Assistant `config/custom_components/`
-directory and restart.
+Or by hand: copy `custom_components/progresscove/` into your `config/custom_components/` and
+restart.
 
 ## Setup
 
-1. In the ProgressCove app, go to **Settings → Advanced → API Tokens** and create one. It is shown
-   **once**, so copy it then.
-2. In Home Assistant, **Settings → Devices & Services → Add Integration → ProgressCove**.
-3. Paste the token. Leave the server address on its default, which is ProgressCove's own servers.
-4. The integration shows a pairing code; type that code back into the app to activate the token.
+You need an API token from ProgressCove. The web app is the easier place to make one, since the
+token is shown only once and the pairing code is a copy/paste.
+
+1. In ProgressCove, go to **Settings → Advanced → API Tokens** and create a token. Copy it now;
+   you will not see it again.
+2. In Home Assistant, go to **Settings → Devices & Services → Add Integration → ProgressCove**.
+3. Paste the token and leave the server address alone.
+4. Home Assistant shows a pairing code. Type it back into ProgressCove to activate the token.
    Until you do, the token opens nothing.
-5. Choose your lists (see below).
+5. Pick your lists (see below).
 
-The server address is prefilled and is what almost everyone should leave alone. There is no
-self-hostable ProgressCove server today; the field is there for development against a local
-backend, and so the integration does not bake in an assumption that there never will be one.
+The server address is prefilled because there is no self-hostable ProgressCove server today. The
+field exists for developing against a local backend, and so the integration does not assume there
+never will be one.
 
-A plain `http://` address is allowed, with a warning to confirm first. Your token and your task
-names travel in the open over http, which is fine on a network you trust and control and not fine
-over the internet. The integration says so and asks; it does not try to guess which one you are
-on.
-
-The token is easiest to create on the **web app**: the pairing code is a copy/paste, and the token
-itself is shown only once.
+You can point it at a plain `http://` address, and it will ask you to confirm first. Your token and
+your task names cross the network in the clear over http. On a LAN you control that is your call;
+over the internet it is not something you want.
 
 ## What counts as a list
 
@@ -102,12 +98,12 @@ Home                          ← a list (its projects are the items)
     └── Frozen food           ← a list
 ```
 
-Both `Shopping` and `Groceries` are real lists in the same account, at different depths. A rule
-like "projects are lists" would put `Groceries` on a card as a single line to tick and leave the
-milk unreachable.
+Both `Shopping` and `Groceries` are real lists in the same account, at different depths. A rule like
+"projects are lists" would put `Groceries` on a card as a single line to tick and leave the milk
+unreachable.
 
-So pick the level you actually shop from. For most shopping lists that is the store section, not
-the trip.
+So pick the level you actually shop from. For most shopping lists that is the store section, not the
+trip.
 
 **The picker offers every node, and pre-ticks the ones that already hold items.** A task with no
 subtasks yet is still on the list. Pick it and you get an empty list that fills itself the moment
@@ -135,9 +131,8 @@ automatically. One per task would be hundreds of entities nobody asked for.
 Both complete a task. Pick by what you want back from it.
 
 A **button** is a press with no state. Use it for a recurring job on a wall tablet, where the only
-question is "done", and there is nothing to read afterwards. Completing a repeating task moves it
-to its next occurrence and there is no way back to the one you just closed, which a button is
-honest about: it never claims to be reversible.
+question is "done", and there is nothing to read afterwards. A button never claims to be reversible,
+which suits a repeat.
 
 A **switch** is readable as well as pressable, so use it when something needs to ASK whether a task
 is done: a template, a condition, or a trigger on `to: "off"`. The cost is that a repeat's switch
@@ -147,20 +142,20 @@ Add either from the integration page; a task can have both.
 
 ### Automations
 
-A task **switch** is on while the task is open and off once it is done, so "when I finish the
-bins" is a state trigger to `off`. For "when this project is finished", trigger on the list's own
+A task **switch** is on while the task is open and off once it is done, so "when I finish the bins"
+is a state trigger to `off`. For "when this project is finished", trigger on the list's own
 `items_complete` attribute, which is a boolean and needs no threshold. A progress **sensor** is for
-the other question: it reports percent as a recorded measurement, so progress can go on a graph or
-a gauge.
+the other question: it reports percent as a recorded measurement, so progress can go on a graph or a
+gauge.
 
-Triggers only see a list's own items. To act on something deeper, such as a task inside a section, either
-add that section as its own list, or call `progresscove.complete` with the task's `node_id`, which
-works at any depth and is the only way to reach a subtask.
+Triggers only see a list's own items. To act on something deeper, such as a task inside a section,
+either add that section as its own list, or call `progresscove.complete` with the task's `node_id`,
+which works at any depth and is the only way to reach a subtask.
 
 ### Subtasks
 
-A to-do item has no room for children, and the Home Assistant frontend cannot nest them. Rather
-than flatten subtasks in beside their parents as though they were peers, they are read with
+A to-do item has no room for children, and the Home Assistant frontend cannot nest them. Rather than
+flatten subtasks in beside their parents as though they were peers, they are read with
 `progresscove.get_nested_items` (see below). Their counts stay on the entity as `nested_items_done`
 and `nested_items_total`, so an automation can ask "how much is left underneath" without a call.
 
@@ -171,54 +166,49 @@ away and tells the server only once the window closes. Tap again inside it and n
 sent. Touchscreens get mistapped, and the task next to the one you meant is one finger-width away.
 
 Only repeats wait. Completing a repeat rolls it to its next occurrence and nothing puts that back,
-so the window is the one chance to undo it. An ordinary task is sent immediately, because it
-reopens perfectly well afterwards. Holding it would have made every tick feel slow for a
-protection it did not need.
+so the window is the one chance to undo it. An ordinary task is sent immediately, since it reopens
+perfectly well afterwards.
 
-**A task that is not due yet is refused.** Completing an occurrence before it arrives moves a
-repeat past the one you were waiting for, so the button and the switch both say no and tell you
-the date it is next due. If you would rather decide that for yourself, turn on *Allow completing
-before the due date* in the integration's options.
+**A task that is not due yet is refused.** Completing an occurrence before it arrives moves a repeat
+past the one you were waiting for, so the button and the switch both say no and tell you the date it
+is next due. If you would rather decide that for yourself, turn on *Allow completing before the due
+date* in the integration's options.
 
-**Completing a repeat is one-way.** A repeating task does not "finish". Completing it moves it to
-its next occurrence, and there is no way back to the one you just closed. An ordinary task reopens
-freely, exactly as in the app.
+A repeat's switch does not stay off. Once the ten seconds pass it rolls to its next occurrence and
+the switch returns to `on`, because the task is open again, just on a later day. A trigger on `to:
+"off"` still fires; a condition like "only while the bins are off" will not hold, because off lasts
+about ten seconds. The switch also stays `on` on days the task is not due: it reports whether the
+task is open, not whether today is its day. For that, read its `due_date` attribute, or use a
+button, whose icon-card tile dims until the next occasion it is due.
 
-A repeat's switch therefore does not stay off. Once the ten seconds pass it rolls to its next
-occurrence and the switch returns to `on`, because the task is open again, just on a later day.
-A trigger on `to: "off"` still fires; a condition like "only while the bins are off" will not hold,
-because off lasts about ten seconds. The switch also stays `on` on days the task is not due: it
-reports whether the task is open, not whether today is its day. For that, read its `due_date`
-attribute, or use a button, whose icon-card tile dims until the next occasion it is due.
-
-That is also why a task switch draws as two buttons rather than a slider: off is a command, not a
-claim that it can be put back.
+A task switch therefore draws as two buttons rather than a slider: off is a command, not a claim
+that it can be put back.
 
 ## Cards
 
-Three cards ship with the integration and register themselves as dashboard resources, so they are
-in the card picker as soon as it is set up. Nothing to copy and nothing to add by hand: search for
+Three cards ship with the integration and register themselves as dashboard resources, so they are in
+the card picker as soon as it is set up. Nothing to copy and nothing to add by hand: search for
 "ProgressCove" under **Edit → Add card**, or paste one of these under **Edit → Add card → Manual**.
 
-Their urls carry a digest of the card files, so an upgrade that changes a card retires the copy
-your browser is holding on its own.
+Their urls carry a digest of the card files, so an upgrade that changes a card retires the copy your
+browser is holding on its own.
 
 ### My Day
 
-![The My Day card: today, ongoing and reminders in three sections](docs/images/my-day.png)
+![My Day card: today, ongoing and reminders in three sections](docs/images/my-day.png)
 
 ```yaml
 type: custom:progresscove-myday-card
 title: My Day
 ```
 
-Reads `todo.my_day` and renders the server's three sections, with the parent name under each task
-so a nested one is not stranded without context. Tapping ticks it off; the integration holds the
-write for ten seconds, so tapping again inside that window undoes it.
+Reads `todo.my_day` and renders the server's three sections, with the parent name under each task so
+a nested one is not stranded without context. Tapping ticks it off; the integration holds the write
+for ten seconds, so tapping again inside that window undoes it.
 
 ### Icons
 
-![The icon card: a wall of task tiles, lit when due and dimmed otherwise](docs/images/icon-card.gif)
+![Icon card: a wall of task tiles, lit when due and dimmed otherwise](docs/images/icon-card.gif)
 
 ```yaml
 type: custom:progresscove-icon-card
@@ -234,7 +224,7 @@ other tile is dimmed and shows when it is next due.
 
 ### Projects
 
-![The projects card: tasks with their subtasks and progress](docs/images/list-card.png)
+![Projects card: tasks with their subtasks and progress](docs/images/list-card.png)
 
 ```yaml
 type: custom:progresscove-card
@@ -246,17 +236,17 @@ Or `demo: true` to preview with sample data.
 
 ### Switches in stock cards
 
-A task switch works in Entities, Tile or Button cards. `assumed_state` makes Home Assistant draw
-two buttons rather than a toggle, because completing a repeat goes one way. Turning one off
-completes the task after the ten-second window; turning it back on inside that window undoes it.
+A task switch works in Entities, Tile or Button cards. `assumed_state` makes Home Assistant draw two
+buttons rather than a toggle, because completing a repeat goes one way. Turning one off completes
+the task after the ten-second window; turning it back on inside that window undoes it.
 
 The stock **To-do list** card works on any of these entities too; it just shows one flat list with
 no sections or nested items.
 
-## How fresh is it
+## Refresh interval
 
-The integration checks every minute, so a change made in the app, on the web, or on your phone
-shows up within a minute. The interval is adjustable under **Configure**, from 1 to 60 minutes.
+The integration checks every minute, so a change made in the app, on the web, or on your phone shows
+up within a minute. The interval is adjustable under **Configure**, from 1 to 60 minutes.
 
 That interval governs **inbound** changes only. Anything you do *from* Home Assistant is sent
 immediately and never waits for it.
@@ -272,9 +262,9 @@ target:
   entity_id: todo.home_shopping_groceries
 ```
 
-They are deliberately NOT entity attributes. Home Assistant rewrites an attribute payload in full
-on every change and truncates it past 16 KB, so a list of a couple of hundred tasks broke the
-entity outright. The stock to-do entity publishes 33 bytes for the same reason. What stays on the
+They are deliberately NOT entity attributes. Home Assistant rewrites an attribute payload in full on
+every change and truncates it past 16 KB, so a list of a couple of hundred tasks broke the entity
+outright. The stock to-do entity publishes 33 bytes for the same reason. What stays on the
 attributes are the counts (`items_done`, `items_total`, `items_percent`, `items_complete`,
 `nested_items_total`, `nested_items_done`): fixed-size, and what an automation actually asks for.
 

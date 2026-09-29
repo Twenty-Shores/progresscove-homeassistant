@@ -172,6 +172,21 @@ class ProgressCoveClient:
         payload = await self._request("GET", "/widget/myday")
         return payload.get("items", [])
 
+    async def async_get_inbox(self) -> dict[str, Any]:
+        """The account's inbox node. 404s when the account has none."""
+        return await self._request("GET", "/nodes/inbox")
+
+    async def async_capture(self, name: str, client_id: str) -> dict[str, Any]:
+        """Add one task to the inbox, without naming a list.
+
+        Idempotent on `client_id`: a retry after a timeout returns the task the first attempt
+        made rather than a second one. That matters more here than anywhere else in this client,
+        because a capture the user believes succeeded has no other surface to reappear on.
+        """
+        return await self._request(
+            "POST", "/widget/tasks", json={"name": name, "client_id": client_id}
+        )
+
     async def async_complete(self, node_id: str) -> None:
         await self._request(
             "POST", f"/nodes/{node_id}/complete", params={"surface": COMPLETION_SURFACE}

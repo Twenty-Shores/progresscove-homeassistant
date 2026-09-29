@@ -10,6 +10,7 @@ attributes carry counts only.
 from __future__ import annotations
 
 import logging
+import uuid
 from typing import Any
 
 from homeassistant.components.todo import (
@@ -69,6 +70,11 @@ async def async_setup_entry(
     ]
     # Always present, and not a subentry: nobody picked it.
     entities.append(ProgressCoveMyDayEntity(coordinator, entry.entry_id))
+    # Likewise, when the account has one. An account provisioned before inboxes existed, or one
+    # whose provisioning half-failed, simply gets no capture list rather than a broken entity.
+    inbox = coordinator.data.by_id.get(coordinator.inbox_id or "")
+    if inbox:
+        entities.append(ProgressCoveInboxEntity(coordinator, entry.entry_id, inbox))
     async_add_entities(entities)
 
 
@@ -261,6 +267,36 @@ class ProgressCoveTodoListEntity(CoordinatorEntity[ProgressCoveCoordinator], Tod
             await self.coordinator.async_refresh()
 
 
+
+
+class ProgressCoveInboxEntity(ProgressCoveTodoListEntity):
+    """The inbox, as a list you can add to without choosing where something goes.
+
+    Every other list here is one the user picked. This one is always present, because the point of
+    it is capture: saying "add milk" to a voice assistant, or typing it on a wall panel, without
+    first deciding which project milk belongs to. Sorting it out later is what the app is for.
+    """
+
+    def __init__(self, coordinator: ProgressCoveCoordinator, entry_id: str,
+                 inbox: dict[str, Any]) -> None:
+        super().__init__(coordinator, entry_id, inbox)
+        # Not the path: the inbox sits under a structural root whose name is an implementation
+        # detail, and "Home > Unsorted > Unsorted" reads like a bug.
+        self._attr_name = "Inbox"
+
+    async def async_create_todo_item(self, item: TodoItem) -> None:
+        """Capture through the widget endpoint, which is idempotent on the id we send.
+
+        A plain create would make a second task if a reply were lost on the way back, and a
+        duplicate is the visible failure for a capture the user believes already worked.
+        """
+        try:
+            with surfaced("add that task"):
+                await self.coordinator.client.async_capture(
+                    item.summary or "", uuid.uuid4().hex
+                )
+        finally:
+            await self.coordinator.async_refresh()
 
 
 def _renamed_to(summary: str | None, stored_name: str | None) -> str | None:

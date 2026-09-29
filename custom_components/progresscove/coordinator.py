@@ -103,6 +103,22 @@ class ProgressCoveCoordinator(DataUpdateCoordinator[Tree]):
         # One set for the whole entry: a completion tapped on a switch and undone from a card is
         # the same task.
         self.pending = PendingCompletions()
+        # Resolved once at setup rather than stored on the entry: a node id written into config
+        # would outlive the node it names if the account were ever reprovisioned, and an entity
+        # pointing at a node that no longer exists is worse than one that never appeared.
+        self.inbox_id: str | None = None
+
+    async def async_resolve_inbox(self) -> None:
+        """Find the account's inbox, so captures have somewhere to go.
+
+        A missing inbox is not fatal: everything else in this integration works without one, and
+        refusing to set up over it would trade every feature for the one that is unavailable.
+        """
+        try:
+            self.inbox_id = (await self.client.async_get_inbox()).get("id")
+        except ProgressCoveError as err:
+            _LOGGER.debug("No inbox for this account, so no capture list: %s", err)
+            self.inbox_id = None
 
     async def _async_update_data(self) -> Tree:
         try:

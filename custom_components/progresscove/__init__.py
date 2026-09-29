@@ -49,6 +49,9 @@ async def async_setup_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     # Before any entity exists, so a dead token fails setup rather than filling the UI with
     # unavailable lists.
     await coordinator.async_config_entry_first_refresh()
+    # After the first refresh, so a broken token has already failed with a message about the token
+    # rather than about an inbox.
+    await coordinator.async_resolve_inbox()
 
     entry.runtime_data = coordinator
     async_register_services(hass)
