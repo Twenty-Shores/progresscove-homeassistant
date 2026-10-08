@@ -223,6 +223,14 @@ class ProgressCoveIconCard extends HTMLElement {
     return followed.join(", ");
   }
 
+  /** Whether a followed project belongs to a read-only account, which has no task buttons to
+   *  draw: the integration does not create them, so the card says why rather than "add one". */
+  get _readOnly() {
+    return (this._config.groups ?? []).some(
+      id => this._hass?.states?.[id]?.attributes?.read_only === true
+    );
+  }
+
   /** Whether the card has been told what to show at all. */
   get _unconfigured() {
     return !(this._config.entities?.length || this._config.groups?.length);
@@ -297,14 +305,18 @@ class ProgressCoveIconCard extends HTMLElement {
         ${tiles.length
           ? `<div class="pc-grid ${this._config.layout === "horizontal" ? "row" : ""}">${
                 tiles.map(s => this._tile(s)).join("")}</div>`
-          : `<div class="pc-empty">${this._unconfigured
-                ? "Pick a project to follow, or the task buttons you want."
-                : "Nothing here yet. Add a task button in the integration."}</div>`}
+          : `<div class="pc-empty">${this._emptyMessage()}</div>`}
       </div>`;
 
     for (const button of this.querySelectorAll(".pc-tile.due")) {
       button.addEventListener("click", () => this._press(button.dataset.entity));
     }
+  }
+
+  _emptyMessage() {
+    if (this._unconfigured) return "Pick a project to follow, or the task buttons you want.";
+    if (this._readOnly) return "Task buttons are off while ProgressCove is read-only.";
+    return "Nothing here yet. Add a task button in the integration.";
   }
 
   _tile(state) {
@@ -355,3 +367,5 @@ if (!window.customCards.some((c) => c.type === "progresscove-icon-card"))
     name: "ProgressCove Icons",
     description: "Tappable task icons, lit when due, dimmed until their day.",
   });
+
+console.info(`progresscove-icon-card %s`, new URL(import.meta.url).searchParams.get("v") ?? "unversioned");

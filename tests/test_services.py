@@ -99,7 +99,7 @@ class FakeClient:
         self.nodes[node_id]["status"] = None
 
 
-def _world(status=None, rule=None, window=0.05):
+def _world(status=None, rule=None, window=0.05, read_only=False):
     pending.UNDO_WINDOW_SECONDS = window
     nodes = {"milk": {"id": "milk", "name": "Milk", "status": status, "recurrence_rule": rule}}
 
@@ -111,6 +111,7 @@ def _world(status=None, rule=None, window=0.05):
 
     coord = Coord()
     coord.pending = pending.PendingCompletions()
+    coord.read_only = read_only
     coord.client = FakeClient(nodes)
     # The real DataUpdateCoordinator has this; it is what repaints every entity at once. Counted
     # here because forgetting to call it is invisible in a unit test and shows up as a checkbox
@@ -405,6 +406,38 @@ class GetNestedItemsTest(unittest.TestCase):
     def test_an_unknown_node_is_refused_rather_than_answered_empty(self):
         with self.assertRaises(services.ServiceValidationError):
             asyncio.run(services._get_nested_items(self._call(self.TREE, "nope")))
+
+
+class ReadOnlyServiceTest(unittest.TestCase):
+    """With a read-only token the services say so, rather than sending a write that is bounced."""
+
+    def _refusal(self, service):
+        error = sys.modules["homeassistant.exceptions"].HomeAssistantError
+        coord, call, _ = _world(read_only=True)
+
+        async def run():
+            with self.assertRaises(error) as caught:
+                await service(call)
+            return str(caught.exception)
+
+        return coord, asyncio.run(run())
+
+    def test_complete_is_refused_with_the_read_only_message(self):
+        coord, message = self._refusal(services._complete)
+        self.assertEqual(message, sys.modules["progresscove.const"].READ_ONLY_MESSAGE)
+        self.assertFalse(coord.pending.is_pending("milk"))
+        self.assertEqual(coord.client.completed, [])
+
+    def test_reopen_is_refused_with_the_read_only_message(self):
+        coord, message = self._refusal(services._reopen)
+        self.assertEqual(message, sys.modules["progresscove.const"].READ_ONLY_MESSAGE)
+        self.assertEqual(coord.client.reopened, [])
+
+    def test_reading_nested_items_still_works(self):
+        coord, call, _ = _world(read_only=True)
+        coord.data.children = lambda node_id: []
+        reply = asyncio.run(services._get_nested_items(call))
+        self.assertEqual(reply, {"nested_items": {}})
 
 
 class PatchBodyTest(unittest.TestCase):

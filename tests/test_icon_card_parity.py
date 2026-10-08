@@ -117,6 +117,7 @@ def _pair(node, pending=False):
     class Coord:
         data = Tree.from_nodes([node])
         pending = held
+        read_only = False
 
     coord = Coord()
     button = ProgressCoveTaskButton(coord, "entry", node["id"])

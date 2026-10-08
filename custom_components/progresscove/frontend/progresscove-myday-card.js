@@ -121,6 +121,7 @@ class ProgressCoveMyDayCard extends HTMLElement {
     if (!this._config) return;
     const state = this._state();
     const items = state?.attributes?.items ?? [];
+    this._readOnly = state?.attributes?.read_only === true;
 
     this.innerHTML = `
       <style>
@@ -154,6 +155,7 @@ class ProgressCoveMyDayCard extends HTMLElement {
         .pc-time{font-size:.78rem;color:var(--secondary-text-color,#4c666d);
                  font-variant-numeric:tabular-nums;flex:0 0 auto;margin-top:2px}
         .pc-empty{color:var(--secondary-text-color,#4c666d);font-size:.9rem;padding:8px 0}
+        .pc-static{cursor:default}
         .pc-row:focus-visible{outline:2px solid ${ACCENT};outline-offset:2px;border-radius:6px}
       </style>
       <div class="pc-card">
@@ -165,7 +167,7 @@ class ProgressCoveMyDayCard extends HTMLElement {
             : `<div class="pc-empty">Nothing due today. Enjoy the quiet.</div>`}
       </div>`;
 
-    for (const row of this.querySelectorAll(".pc-row")) {
+    for (const row of this.querySelectorAll("button.pc-row")) {
       row.addEventListener("click", () =>
         this._toggle(row.dataset.uid, row.dataset.done === "true"));
     }
@@ -186,16 +188,22 @@ class ProgressCoveMyDayCard extends HTMLElement {
     // A nested task reads oddly alone, so the parent gives it context. Only the parent: a full
     // breadcrumb would wrap on a tablet.
     const parent = (item.path ?? "").split(" › ").slice(-2, -1)[0] ?? "";
+    const row = this._readOnly
+      ? { open: `<div class="pc-row pc-static">`, close: "</div>" }
+      : {
+          open: `<button class="pc-row" data-uid="${esc(item.id)}" data-done="${done}"
+              aria-pressed="${done}" aria-label="${esc(item.name)}">`,
+          close: "</button>",
+        };
     return `
-      <button class="pc-row" data-uid="${esc(item.id)}" data-done="${done}"
-              aria-pressed="${done}" aria-label="${esc(item.name)}">
+      ${row.open}
         <span class="pc-box ${done ? "on" : ""}"></span>
         <span class="pc-label">
           <div class="pc-name ${done ? "done" : ""}">${esc(item.emoji ? item.emoji + " " : "")}${esc(item.name)}</div>
           ${parent ? `<div class="pc-path">${esc(parent)}</div>` : ""}
         </span>
         ${item.time_utc ? `<span class="pc-time">${esc(timeLabel(item.time_utc))}</span>` : ""}
-      </button>`;
+      ${row.close}`;
   }
 }
 
@@ -223,3 +231,5 @@ if (!window.customCards.some((c) => c.type === "progresscove-myday-card"))
     name: "ProgressCove My Day",
     description: "Today's work in sections: today, ongoing, reminders.",
   });
+
+console.info(`progresscove-myday-card %s`, new URL(import.meta.url).searchParams.get("v") ?? "unversioned");

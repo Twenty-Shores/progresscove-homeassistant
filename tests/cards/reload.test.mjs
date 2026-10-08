@@ -26,3 +26,19 @@ for (const [file, element] of Object.entries(CARDS)) {
     assert.ok(second.defined.get(element), "lost its registration on the second load");
   });
 }
+
+for (const [file, element] of Object.entries(CARDS)) {
+  test(`${element} prints one banner naming the version it loaded`, async () => {
+    const lines = [];
+    const original = console.info;
+    console.info = (...args) => lines.push(args);
+    try {
+      await loadCard(file);
+    } finally {
+      console.info = original;
+    }
+    assert.equal(lines.length, 1);
+    assert.equal(lines[0][0], `${element} %s`);
+    assert.equal(lines[0][1], "unversioned", "the test harness loads from a url with no ?v=");
+  });
+}

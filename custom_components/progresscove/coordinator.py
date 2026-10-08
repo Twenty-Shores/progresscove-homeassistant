@@ -17,7 +17,7 @@ from homeassistant.exceptions import ConfigEntryAuthFailed
 from .api import ProgressCoveAuthError, ProgressCoveClient, ProgressCoveError
 from .pending import PendingCompletions
 from .names import PATH_SEPARATOR, display_name
-from .const import DOMAIN
+from .const import CONF_TOKEN_SCOPE, DOMAIN, SCOPE_READ, SCOPE_READ_WRITE
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -107,6 +107,8 @@ class ProgressCoveCoordinator(DataUpdateCoordinator[Tree]):
         # would outlive the node it names if the account were ever reprovisioned, and an entity
         # pointing at a node that no longer exists is worse than one that never appeared.
         self.inbox_id: str | None = None
+        # Seeded from what the entry last learned, then corrected by every refresh.
+        self.read_only: bool = entry.data.get(CONF_TOKEN_SCOPE) == SCOPE_READ
 
     async def async_resolve_inbox(self) -> None:
         """Find the account's inbox, so captures have somewhere to go.
@@ -133,7 +135,26 @@ class ProgressCoveCoordinator(DataUpdateCoordinator[Tree]):
             raise ConfigEntryAuthFailed(str(err)) from err
         except ProgressCoveError as err:
             raise UpdateFailed(str(err)) from err
+        self._apply_token_scope()
         return Tree.from_nodes(nodes, my_day)
+
+    def _apply_token_scope(self) -> None:
+        """Follow the scope the server reports, on every refresh.
+
+        Entities fix their features when they are built, so a change is written to the entry, whose
+        update listener reloads it and builds them again with the right ones.
+        """
+        scope = self.client.token_scope
+        if scope is None or self.config_entry is None:
+            return
+        from .read_only import sync_issue
+
+        self.read_only = scope != SCOPE_READ_WRITE
+        sync_issue(self.hass, self.config_entry, self.read_only)
+        if self.config_entry.data.get(CONF_TOKEN_SCOPE) != scope:
+            self.hass.config_entries.async_update_entry(
+                self.config_entry, data={**self.config_entry.data, CONF_TOKEN_SCOPE: scope}
+            )
 
     async def _async_refresh(self, *args: Any, **kwargs: Any) -> None:
         """Refresh, then reconcile subentries against what came back.

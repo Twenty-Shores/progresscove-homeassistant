@@ -31,10 +31,11 @@
         }
       },
       "reconfigure": {
-        "title": "Change the server address",
-        "description": "Where this Home Assistant reaches ProgressCove. To replace the token, remove and re-add the integration, or wait for it to ask when the old one stops working.",
+        "title": "Change the server or token",
+        "description": "Where this Home Assistant reaches ProgressCove, and optionally a replacement token. Leave the token empty to keep the current one. A new token is paired the same way the first one was.",
         "data": {
-          "base_url": "Server"
+          "base_url": "Server",
+          "token": "New API token (optional)"
         }
       },
       "pair": {
@@ -48,6 +49,10 @@
       "reconfigure_insecure": {
         "title": "This address is not encrypted",
         "description": "{url} uses http, so your token and your task names travel across the network in the open. That is fine on a network you trust and control. It is not fine over the internet, where anyone between you and the server can read them.\n\nContinue only if you know this address stays on your own network."
+      },
+      "read_only": {
+        "title": "This token is read-only",
+        "description": "Your lists and cards will show your tasks, but ticking, adding and buttons are off. To turn them on, create a read and write token in ProgressCove and paste it under Reconfigure on the integration page.\n\nContinue to set up with what this token can do."
       }
     },
     "error": {
@@ -55,7 +60,8 @@
       "invalid_auth": "That token was not accepted. It may have been revoked, or your subscription may have ended.",
       "no_projects": "That account has no projects yet. Create one in the app first.",
       "not_paired_yet": "Not paired yet. Enter the code in ProgressCove, then try again.",
-      "invalid_url": "That does not look like a web address. It should start with https://"
+      "invalid_url": "That does not look like a web address. It should start with https://",
+      "different_account": "That token belongs to a different account. To switch accounts, remove the integration and add it again."
     },
     "abort": {
       "already_configured": "This account is already set up.",
@@ -176,6 +182,10 @@
     "stale_entities": {
       "title": "Some entities point at tasks that are no longer there",
       "description": "These could not be confirmed with the server, so nothing was removed: {names}. If you deleted those tasks, delete these from the integration page. If not, they will come back on their own once the server is reachable."
+    },
+    "read_only": {
+      "title": "ProgressCove is read-only",
+      "description": "The token this Home Assistant uses can only read. Lists and cards show your tasks, but ticking, adding and buttons are off. To turn them on, create a read and write token in ProgressCove under Settings → Advanced → API tokens, then open this integration, choose Reconfigure from its menu and paste the new token there."
     }
   }
 }

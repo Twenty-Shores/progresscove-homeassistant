@@ -42,6 +42,7 @@ from .const import (
     CONF_NODE_SORT,
     CONF_PROJECTS,
     CONF_TOKEN,
+    CONF_TOKEN_SCOPE,
     DEFAULT_BASE_URL,
     DEFAULT_MAX_DEPTH,
     DEFAULT_MIN_DEPTH,
@@ -55,6 +56,7 @@ from .const import (
     MIN_SCAN_MINUTES,
     DOMAIN,
     MAX_TIER_DEPTH,
+    SCOPE_READ,
     SORT_BY_LEAF,
     SORT_BY_ROOT,
 )
@@ -184,6 +186,7 @@ class ProgressCoveConfigFlow(ConfigFlow, domain=DOMAIN):
         self._all_nodes: list[dict[str, Any]] = []
         self._pairing_code: str | None = None
         self._device_id: str | None = None
+        self._token_scope: str | None = None
         # Where pairing returns to. Setup and reauth both need the step, and it cannot
         # guess which one is running it.
         self._after_pairing = "projects"
@@ -206,7 +209,27 @@ class ProgressCoveConfigFlow(ConfigFlow, domain=DOMAIN):
             return {"base": "cannot_connect"}
 
         self._all_nodes = nodes
+        self._token_scope = client.token_scope
         return {} if nodes else {"base": "no_projects"}
+
+    async def _async_after_credentials(self) -> ConfigFlowResult:
+        """Where a working token leads: the lists, unless it can only read, in which case say so
+        first so the missing controls are not a surprise later."""
+        if self._token_scope == SCOPE_READ:
+            return await self.async_step_read_only()
+        return await self.async_step_projects()
+
+    async def async_step_read_only(
+        self, user_input: dict[str, Any] | None = None
+    ) -> ConfigFlowResult:
+        """Warn that this token cannot change anything, and let the user carry on regardless.
+
+        A read-only token is a legitimate choice, for a dashboard nobody should tap by accident, so
+        this informs rather than blocks.
+        """
+        if user_input is not None:
+            return await self.async_step_projects()
+        return self.async_show_form(step_id="read_only", data_schema=vol.Schema({}))
 
     async def async_step_user(
         self, user_input: dict[str, Any] | None = None
@@ -224,7 +247,7 @@ class ProgressCoveConfigFlow(ConfigFlow, domain=DOMAIN):
             else:
                 errors = await self._async_load_projects()
             if not errors:
-                return await self.async_step_projects()
+                return await self._async_after_credentials()
             # A fresh token is dormant until the owner confirms this installation, which looks
             # exactly like a bad one, so offer pairing rather than calling it invalid.
             if errors.get("base") == "invalid_auth":
@@ -250,7 +273,7 @@ class ProgressCoveConfigFlow(ConfigFlow, domain=DOMAIN):
         if user_input is not None:
             errors = await self._async_load_projects()
             if not errors:
-                return await self.async_step_projects()
+                return await self._async_after_credentials()
             if errors.get("base") == "invalid_auth":
                 return await self.async_step_pair()
             return self.async_show_form(
@@ -303,10 +326,14 @@ class ProgressCoveConfigFlow(ConfigFlow, domain=DOMAIN):
                 errors = await self._async_check_token(self._device_id)
                 if not errors:
                     return self._save_reauth_token()
+            elif self._after_pairing == "reconfigure":
+                errors = await self._async_load_projects()
+                if not errors:
+                    return self._save_reconfigured()
             else:
                 errors = await self._async_load_projects()
                 if not errors:
-                    return await self.async_step_projects()
+                    return await self._async_after_credentials()
             # A 401 here means the owner has not confirmed the code yet, which is the ordinary
             # case on this screen. Anything else is its own problem and says so: reporting an
             # outage as "not paired yet" leaves someone re-entering a code at an unreachable
@@ -337,6 +364,7 @@ class ProgressCoveConfigFlow(ConfigFlow, domain=DOMAIN):
                     CONF_TOKEN: self._token,
                     CONF_PROJECTS: user_input[CONF_PROJECTS],
                     CONF_DEVICE_ID: self._device_id,
+                    CONF_TOKEN_SCOPE: self._token_scope,
                 },
             )
 
@@ -359,57 +387,74 @@ class ProgressCoveConfigFlow(ConfigFlow, domain=DOMAIN):
     async def async_step_reconfigure(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
-        """Change the server address, without starting over.
+        """Change the server address, or swap in a different token, without starting over.
 
-        Only the address. A token change goes through reauth, which pairs; pointing an entry at a
-        DIFFERENT account is a delete-and-re-add, since nothing else about the entry would still
-        apply. Which lists are shown is "Add lists" on the integration page.
+        Leaving the token empty keeps the current one. A new token is dormant until paired, so one
+        the server does not accept yet goes through the same pairing step setup uses. Which lists
+        are shown is "Add lists" on the integration page.
         """
         entry = self._get_reconfigure_entry()
-        errors: dict[str, str] = {}
-
-        if user_input is not None:
-            self._base_url, url_error, insecure = validate_base_url(user_input[CONF_BASE_URL])
-            self._token = entry.data[CONF_TOKEN]
-            if url_error:
-                errors = {CONF_BASE_URL: url_error}
-            elif insecure:
-                return await self.async_step_reconfigure_insecure()
-            else:
-                errors = await self._async_load_projects()
-            if not errors:
-                return self._save_credentials(entry)
-        else:
+        if user_input is None:
             self._base_url = entry.data[CONF_BASE_URL]
+            return self._show_reconfigure({})
 
+        self._base_url, url_error, insecure = validate_base_url(user_input[CONF_BASE_URL])
+        self._token = user_input.get(CONF_TOKEN, "").strip() or entry.data[CONF_TOKEN]
+        self._device_id = entry.data.get(CONF_DEVICE_ID)
+        if url_error:
+            return self._show_reconfigure({CONF_BASE_URL: url_error})
+        if insecure:
+            return await self.async_step_reconfigure_insecure()
+        return await self._async_finish_reconfigure(await self._async_load_projects())
+
+    def _show_reconfigure(self, errors: dict[str, str]) -> ConfigFlowResult:
         return self.async_show_form(
             step_id="reconfigure",
             data_schema=vol.Schema(
                 {
                     vol.Required(CONF_BASE_URL, default=self._base_url): str,
+                    vol.Optional(CONF_TOKEN): str,
                 }
             ),
             errors=errors,
         )
+
+    async def _async_finish_reconfigure(self, errors: dict[str, str]) -> ConfigFlowResult:
+        """Save when the credentials work; pair when a NEW token is merely not confirmed yet."""
+        if not errors:
+            return self._save_reconfigured()
+        entry = self._get_reconfigure_entry()
+        if errors.get("base") == "invalid_auth" and self._token != entry.data[CONF_TOKEN]:
+            self._after_pairing = "reconfigure"
+            return await self.async_step_pair()
+        return self._show_reconfigure(errors)
+
+    def _save_reconfigured(self) -> ConfigFlowResult:
+        """Save a working address and token, unless the token is for a different account.
+
+        The configured lists, buttons and switches name nodes of ONE account. Another account's
+        token would leave every one of them pointing at nothing, and the prune would then remove
+        them as deleted, so the swap is refused up front rather than undone entity by entity.
+        """
+        entry = self._get_reconfigure_entry()
+        if self._token != entry.data[CONF_TOKEN] and self._sees_none_of(entry):
+            return self._show_reconfigure({"base": "different_account"})
+        return self._save_credentials(entry)
+
+    def _sees_none_of(self, entry: ConfigEntry) -> bool:
+        """Whether the account just read holds none of the nodes this entry is built on."""
+        configured = set(entry.data.get(CONF_PROJECTS, [])) | {
+            subentry.data.get("node_id") for subentry in entry.subentries.values()
+        }
+        configured.discard(None)
+        return bool(configured) and configured.isdisjoint(n["id"] for n in self._all_nodes)
 
     async def async_step_reconfigure_insecure(
         self, user_input: dict[str, Any] | None = None
     ) -> ConfigFlowResult:
         """Confirm an http address on reconfigure, for the same reason setup does."""
         if user_input is not None:
-            errors = await self._async_load_projects()
-            if not errors:
-                return self._save_credentials(self._get_reconfigure_entry())
-            return self.async_show_form(
-                step_id="reconfigure",
-                data_schema=vol.Schema(
-                    {
-                        vol.Required(CONF_BASE_URL, default=self._base_url): str,
-                        vol.Required(CONF_TOKEN, default=self._token): str,
-                    }
-                ),
-                errors=errors,
-            )
+            return await self._async_finish_reconfigure(await self._async_load_projects())
 
         return self.async_show_form(
             step_id="reconfigure_insecure",
@@ -418,15 +463,21 @@ class ProgressCoveConfigFlow(ConfigFlow, domain=DOMAIN):
         )
 
     def _save_credentials(self, entry: ConfigEntry) -> ConfigFlowResult:
-        """Write the new address, leaving the token and everything else as it was.
+        """Write the address and token this flow ended with, leaving everything else as it was.
 
-        The unique id moves with the address because it embeds both, and no mismatch guard: the
-        same account behind a new address is exactly what this flow is for.
+        The unique id moves with them because it embeds both, and no mismatch guard: the same
+        account behind a new address or a replacement token is exactly what this flow is for.
         """
         return self.async_update_reload_and_abort(
             entry,
             unique_id=f"{self._base_url}::{self._token[:12]}",
-            data={**entry.data, CONF_BASE_URL: self._base_url},
+            data={
+                **entry.data,
+                CONF_BASE_URL: self._base_url,
+                CONF_TOKEN: self._token,
+                CONF_DEVICE_ID: self._device_id,
+                CONF_TOKEN_SCOPE: self._token_scope,
+            },
         )
 
     async def async_step_reauth(
@@ -468,7 +519,11 @@ class ProgressCoveConfigFlow(ConfigFlow, domain=DOMAIN):
         """Store the replacement token, and the id it is now bound to."""
         return self.async_update_reload_and_abort(
             self._get_reauth_entry(),
-            data_updates={CONF_TOKEN: self._token, CONF_DEVICE_ID: self._device_id},
+            data_updates={
+                CONF_TOKEN: self._token,
+                CONF_DEVICE_ID: self._device_id,
+                CONF_TOKEN_SCOPE: self._token_scope,
+            },
         )
 
     async def _async_check_token(self, device_id: str | None) -> dict[str, str]:
@@ -482,6 +537,7 @@ class ProgressCoveConfigFlow(ConfigFlow, domain=DOMAIN):
             return {"base": "invalid_auth"}
         except ProgressCoveError:
             return {"base": "cannot_connect"}
+        self._token_scope = client.token_scope
         return {}
 
     @classmethod

@@ -16,8 +16,8 @@ import logging
 
 from homeassistant.exceptions import HomeAssistantError
 
-from .const import CONF_COMPLETE_EARLY, DEFAULT_COMPLETE_EARLY, STATUS_COMPLETED
-from .helpers import can_complete, due_date, surfaced, timezone_of
+from .const import CONF_COMPLETE_EARLY, DOMAIN, DEFAULT_COMPLETE_EARLY, STATUS_COMPLETED
+from .helpers import can_complete, due_date, refuse_if_read_only, surfaced, timezone_of
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -63,16 +63,39 @@ def complete(coordinator, node_id: str, repaint) -> None:
 
     Completing an already-completed task is a no-op rather than a second call.
     """
+    refuse_if_read_only(coordinator)
     node = coordinator.data.by_id.get(node_id, {})
     if node.get("status") == STATUS_COMPLETED:
         return
 
     async def send() -> None:
-        with surfaced("complete that task"):
-            await coordinator.client.async_complete(node_id)
-        await coordinator.async_refresh()
+        await send_completion(coordinator, node_id)
 
     coordinator.pending.schedule(node_id, send, repaint, hold=needs_window(node))
+
+
+async def send_completion(coordinator, node_id: str) -> None:
+    """Send a completion and refresh; on failure tell the user, then re-raise for the log.
+
+    A held completion is sent seconds after the tap with nobody waiting on the result, so a
+    failure would otherwise be a button that quietly undid itself. One notification per task, so
+    a task failing repeatedly replaces its message instead of stacking.
+    """
+    try:
+        with surfaced("complete that task"):
+            await coordinator.client.async_complete(node_id)
+    except Exception:
+        from homeassistant.components import persistent_notification
+
+        name = coordinator.data.by_id.get(node_id, {}).get("name", "A task")
+        persistent_notification.async_create(
+            coordinator.hass,
+            f'Completing "{name}" did not go through. It was not saved and the task is unchanged.',
+            title="ProgressCove",
+            notification_id=f"{DOMAIN}_complete_failed_{node_id}",
+        )
+        raise
+    await coordinator.async_refresh()
 
 
 class PendingCompletions:

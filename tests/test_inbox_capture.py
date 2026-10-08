@@ -129,6 +129,7 @@ def _entity(nodes=None):
         data = tree
         pending = _pending.PendingCompletions()
         inbox_id = INBOX_ID
+        read_only = False
 
     coord = Coordinator()
     coord.client = client

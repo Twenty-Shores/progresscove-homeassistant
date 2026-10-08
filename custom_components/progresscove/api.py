@@ -16,6 +16,15 @@ from typing import Any
 
 import aiohttp
 
+from .const import (
+    ERROR_CODE_HEADER,
+    ERROR_CODE_READ_ONLY,
+    READ_ONLY_MESSAGE,
+    SCOPE_READ,
+    SCOPE_READ_WRITE,
+    TOKEN_SCOPE_HEADER,
+)
+
 _LOGGER = logging.getLogger(__name__)
 
 # Required: the server answers 400 without it.
@@ -57,6 +66,17 @@ class ProgressCoveRejected(ProgressCoveError):
     """The server refused the write and said why. The message is meant to be read by a person."""
 
 
+class ProgressCoveReadOnly(ProgressCoveRejected):
+    """A write was refused because the token can only read.
+
+    A rejection rather than an auth failure: the token is valid and the owner chose its scope, so
+    asking for a new token through reauth would be the wrong remedy.
+    """
+
+    def __init__(self) -> None:
+        super().__init__(READ_ONLY_MESSAGE)
+
+
 class ProgressCoveClient:
     """One instance per config entry."""
 
@@ -71,6 +91,8 @@ class ProgressCoveClient:
         self._base = base_url.rstrip("/")
         self._token = token
         self._headers = {**API_VERSION_HEADER, "Authorization": f"Bearer {token}"}
+        # None until the server has answered once, and again for a server that sends no scope.
+        self.token_scope: str | None = None
         # Stable across restarts: the server binds a token to the first installation that uses
         # it, so a regenerated id locks this Home Assistant out of its own token.
         if device_id:
@@ -90,6 +112,8 @@ class ProgressCoveClient:
     async def _request(self, method: str, path: str, **kwargs: Any) -> Any:
         """One request, with every status the API can answer mapped to an exception.
 
+        403 with X-Error-Code pat_read_only
+                  ProgressCoveReadOnly. The token is fine; it cannot write.
         401, 403  ProgressCoveAuthError. The token was rejected or the subscription is inactive.
                   Both are the user's to fix and neither is retryable, so Home Assistant opens a
                   reauth flow rather than showing a transient outage.
@@ -108,6 +132,13 @@ class ProgressCoveClient:
             async with self._session.request(
                 method, url, headers=self._headers, **kwargs
             ) as resp:
+                self._note_scope(resp)
+                if (
+                    resp.status == 403
+                    and resp.headers.get(ERROR_CODE_HEADER) == ERROR_CODE_READ_ONLY
+                ):
+                    self.token_scope = SCOPE_READ
+                    raise ProgressCoveReadOnly()
                 if resp.status in (401, 403):
                     raise ProgressCoveAuthError(
                         f"{resp.status} from {path}: token rejected or subscription inactive"
@@ -122,6 +153,17 @@ class ProgressCoveClient:
                 return await resp.json()
         except aiohttp.ClientError as err:
             raise ProgressCoveError(f"{method} {path} failed: {err}") from err
+
+    def _note_scope(self, resp: aiohttp.ClientResponse) -> None:
+        """Remember the scope the server reports for this token.
+
+        Anything other than the one value that grants writes is treated as read-only: a scope this
+        code has never heard of must not unlock features it cannot vouch for.
+        """
+        reported = resp.headers.get(TOKEN_SCOPE_HEADER)
+        if reported is None:
+            return
+        self.token_scope = SCOPE_READ_WRITE if reported == SCOPE_READ_WRITE else SCOPE_READ
 
     async def async_check_credentials(self) -> None:
         """Cheapest call that proves the token works. Used by the config flow before an entry is

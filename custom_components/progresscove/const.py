@@ -10,6 +10,7 @@ CONF_PROJECTS = "projects"
 # Stable across restarts: the server binds a token to the first installation that uses it, so a
 # regenerated id would lock this Home Assistant out of its own token.
 CONF_DEVICE_ID = "device_id"
+CONF_TOKEN_SCOPE = "token_scope"
 # How the button/switch pickers order and label their options. "leaf" leads with the task's own
 # name, what someone types; "root" leads with the path, what someone browsing a branch reads.
 CONF_NODE_SORT = "node_sort"
@@ -55,9 +56,22 @@ MAX_SCAN_MINUTES = 60
 ATTR_NESTED_DONE = "nested_items_done"
 ATTR_NESTED_TOTAL = "nested_items_total"
 ATTR_NODE_ID = "node_id"
+# What a card reads to draw itself without tap targets.
+ATTR_READ_ONLY = "read_only"
 ATTR_ITEMS_DONE = "items_done"
 ATTR_ITEMS_TOTAL = "items_total"
 # Derived deliberately: a state trigger compares one attribute to a fixed value, so without these
 # every "is it finished" automation needed a template condition.
 ATTR_ITEMS_COMPLETE = "items_complete"
 ATTR_ITEMS_PCT = "items_percent"
+
+TOKEN_SCOPE_HEADER = "X-Token-Scope"
+ERROR_CODE_HEADER = "X-Error-Code"
+ERROR_CODE_READ_ONLY = "pat_read_only"
+SCOPE_READ = "read"
+SCOPE_READ_WRITE = "read_write"
+
+READ_ONLY_MESSAGE = (
+    "This ProgressCove token is read-only, so nothing was changed. Create a read and write "
+    "token and paste it under Reconfigure on the integration page."
+)

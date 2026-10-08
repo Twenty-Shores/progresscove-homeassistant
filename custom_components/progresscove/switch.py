@@ -36,6 +36,8 @@ async def async_setup_entry(
 ) -> None:
     """One per subentry. Never automatic: a switch per node would be hundreds of entities."""
     coordinator: ProgressCoveCoordinator = entry.runtime_data
+    if coordinator.read_only:
+        return
     for subentry_id, subentry in entry.subentries.items():
         if subentry.subentry_type != "switch":
             continue

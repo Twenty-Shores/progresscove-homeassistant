@@ -17,6 +17,9 @@ ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "custom_components"))
 
 
+notifications: list[tuple] = []
+
+
 def _install_ha_stubs() -> None:
     """Minimal stand-ins for the Home Assistant modules the entity imports.
 
@@ -94,6 +97,20 @@ def _install_ha_stubs() -> None:
 
 _install_ha_stubs()
 
+
+def _install_notification_stub() -> None:
+    """Recorded rather than rendered: the assertion is on what the user would have been shown."""
+    components = sys.modules["homeassistant.components"]
+    stub = types.ModuleType("homeassistant.components.persistent_notification")
+    stub.async_create = lambda hass, message, title=None, notification_id=None: (
+        notifications.append((notification_id, title, message))
+    )
+    sys.modules[stub.__name__] = stub
+    components.persistent_notification = stub
+
+
+_install_notification_stub()
+
 # Import the modules directly rather than through the package __init__, which pulls in HA's
 # config-entry machinery that has nothing to do with completion arithmetic.
 import importlib.util                                          # noqa: E402
@@ -118,6 +135,7 @@ _pending = _load("pending")
 PendingCompletions = _pending.PendingCompletions
 Tree = _load("coordinator").Tree
 ProgressCoveTodoListEntity = _load("todo").ProgressCoveTodoListEntity
+_api = sys.modules["progresscove.api"]
 from homeassistant.components.todo import TodoItem, TodoItemStatus  # noqa: E402
 
 QUARTERLY = "RRULE:FREQ=MONTHLY;INTERVAL=3"
@@ -156,9 +174,11 @@ def _entity(window=0.05):
     class Coordinator:
         data = tree
         pending = PendingCompletions()
+        read_only = False
 
     coord = Coordinator()
     coord.client = client
+    coord.hass = object()
 
     async def refresh():
         coord.data = Tree.from_nodes([parent, task])
@@ -168,6 +188,7 @@ def _entity(window=0.05):
     coord.async_refresh = refresh
 
     entity = ProgressCoveTodoListEntity.__new__(ProgressCoveTodoListEntity)
+    entity.hass = types.SimpleNamespace(config=types.SimpleNamespace(time_zone="America/New_York"))
     entity.coordinator = coord
     entity._project_id = PARENT_ID
     entity._attr_name = parent["name"]
@@ -225,6 +246,53 @@ class RepeatCompletionTest(unittest.TestCase):
             self.assertEqual(task["due_at"][:10], "2026-11-14")
             self.assertEqual(client.completions, 1)
         asyncio.run(run())
+
+
+class FailedCompletionTest(unittest.TestCase):
+    def _fail_with(self, error):
+        async def run():
+            entity, client, task = _entity()
+
+            async def refuse(node_id):
+                raise error
+
+            client.async_complete = refuse
+            notifications.clear()
+            await entity.async_update_todo_item(_tick(entity, True))
+            await asyncio.sleep(0.2)
+            return task
+        return asyncio.run(run())
+
+    def test_a_network_failure_is_shown_to_the_user(self):
+        task = self._fail_with(_api.ProgressCoveError("unreachable"))
+        self.assertEqual(len(notifications), 1)
+        notification_id, _, message = notifications[0]
+        self.assertEqual(notification_id, f"progresscove_complete_failed_{TASK_ID}")
+        self.assertIn("Change AC filter", message)
+        self.assertIn("not saved", message)
+        self.assertEqual(task["due_at"][:10], "2026-08-14")
+
+    def test_a_refused_write_is_shown_to_the_user(self):
+        self._fail_with(_api.ProgressCoveRejected("read-only token"))
+        self.assertEqual(len(notifications), 1)
+
+    def test_an_unclassified_error_is_shown_to_the_user(self):
+        self._fail_with(RuntimeError("boom"))
+        self.assertEqual(len(notifications), 1)
+
+    def test_repeated_failures_reuse_one_notification_id(self):
+        self._fail_with(RuntimeError("boom"))
+        self._fail_with(RuntimeError("boom"))
+        self.assertEqual({n[0] for n in notifications}, {f"progresscove_complete_failed_{TASK_ID}"})
+
+    def test_a_successful_completion_raises_no_notification(self):
+        async def run():
+            entity, _, _ = _entity()
+            notifications.clear()
+            await entity.async_update_todo_item(_tick(entity, True))
+            await asyncio.sleep(0.2)
+        asyncio.run(run())
+        self.assertEqual(notifications, [])
 
 
 if __name__ == "__main__":

@@ -106,9 +106,9 @@ class TokenChangeTest(unittest.TestCase):
     """Every token is minted dormant, so a replacement authenticates nothing until it is paired.
 
     Reauth and reconfigure both took a token and neither paired it, so every replacement was
-    rejected as invalid: the one thing those flows exist to do. Reauth now pairs. Reconfigure no
-    longer takes a token at all, because a DIFFERENT account's token is a delete-and-re-add and a
-    rotation belongs in reauth.
+    rejected as invalid: the one thing those flows exist to do. Both now pair. Reconfigure takes
+    its token as an optional field, so swapping a read-only token for a read and write one does not
+    wait for the old one to fail.
     """
 
     def _flow(self):
@@ -133,11 +133,25 @@ class TokenChangeTest(unittest.TestCase):
         saver = source[start:source.index("async def _async_check_token")]
         self.assertIn("CONF_DEVICE_ID: self._device_id", saver)
 
-    def test_reconfigure_does_not_take_a_token(self):
+    def test_reconfigure_offers_the_token_as_optional(self):
+        source = self._flow()
+        form = source[source.index("def _show_reconfigure"):
+                      source.index("async def _async_finish_reconfigure")]
+        self.assertIn("vol.Optional(CONF_TOKEN): str", form)
+        self.assertNotIn("vol.Required(CONF_TOKEN", form)
+
+    def test_reconfigure_routes_an_unpaired_token_to_pairing(self):
+        source = self._flow()
+        finish = source[source.index("async def _async_finish_reconfigure"):
+                        source.index("def _save_reconfigured")]
+        self.assertIn('self._after_pairing = "reconfigure"', finish)
+        self.assertIn("return await self.async_step_pair()", finish)
+
+    def test_reconfigure_sends_the_installation_id_the_entry_already_has(self):
         source = self._flow()
         step = source[source.index("async def async_step_reconfigure("):
-                      source.index("async def async_step_reconfigure_insecure")]
-        self.assertNotIn("CONF_TOKEN): str", step, "reconfigure still offers a token field")
+                      source.index("def _show_reconfigure")]
+        self.assertIn("self._device_id = entry.data.get(CONF_DEVICE_ID)", step)
 
 
 class PairingErrorTest(unittest.TestCase):
@@ -180,7 +194,7 @@ class DocstringDriftTest(unittest.TestCase):
 
 
 class ReconfigureScopeTest(unittest.TestCase):
-    """Reconfigure changes the address and nothing else."""
+    """Reconfigure changes the address and token, and what binds them, and nothing else."""
 
     def _flow(self):
         return (Path(__file__).resolve().parents[1] / "custom_components" / "progresscove"
@@ -192,13 +206,11 @@ class ReconfigureScopeTest(unittest.TestCase):
         saver = source[start:source.index("async def async_step_reauth")]
         self.assertIn("**entry.data", saver, "reconfigure must preserve what it does not change")
 
-    def test_it_writes_only_the_address_and_the_token(self):
+    def test_it_does_not_rewrite_the_chosen_lists(self):
         source = self._flow()
         start = source.index("def _save_credentials")
         saver = source[start:source.index("async def async_step_reauth")]
-        for key in ("CONF_DEVICE_ID", "CONF_PROJECTS"):
-            with self.subTest(key):
-                self.assertNotIn(f"{key}:", saver, f"reconfigure should not rewrite {key}")
+        self.assertNotIn("CONF_PROJECTS:", saver, "reconfigure should not rewrite CONF_PROJECTS")
 
     def test_there_is_no_project_step_left_on_this_route(self):
         self.assertNotIn("async_step_reconfigure_projects", self._flow())

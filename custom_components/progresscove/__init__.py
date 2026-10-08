@@ -15,6 +15,7 @@ from .coordinator import ProgressCoveCoordinator
 from .frontend import async_register as async_register_frontend
 from .services import async_register as async_register_services
 from .helpers import scan_minutes
+from .read_only import clear_issue
 
 PLATFORMS = [Platform.TODO, Platform.BUTTON, Platform.SWITCH, Platform.SENSOR]
 
@@ -91,6 +92,11 @@ def _retitle_subentries(hass: HomeAssistant, entry: ConfigEntry, coordinator) ->
 async def async_unload_entry(hass: HomeAssistant, entry: ConfigEntry) -> bool:
     entry.runtime_data.pending.cancel_all()
     return await hass.config_entries.async_unload_platforms(entry, PLATFORMS)
+
+
+async def async_remove_entry(hass: HomeAssistant, entry: ConfigEntry) -> None:
+    """Take the read-only repair with the entry, or it would outlive the thing it describes."""
+    clear_issue(hass, entry)
 
 
 async def _async_reload(hass: HomeAssistant, entry: ConfigEntry) -> None:

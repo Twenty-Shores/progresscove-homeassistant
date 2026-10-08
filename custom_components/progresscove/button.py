@@ -38,6 +38,8 @@ async def async_setup_entry(
     pickup" in the UI removes exactly that entity and leaves the others alone.
     """
     coordinator: ProgressCoveCoordinator = entry.runtime_data
+    if coordinator.read_only:
+        return
     for subentry_id, subentry in entry.subentries.items():
         if subentry.subentry_type != "button":
             continue

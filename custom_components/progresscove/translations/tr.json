@@ -28,10 +28,11 @@
         }
       },
       "reconfigure": {
-        "title": "Sunucu adresini değiştir",
-        "description": "Bu Home Assistant'ın ProgressCove'a ulaştığı adres. Jetonu değiştirmek için entegrasyonu kaldırıp yeniden ekleyin ya da eskisi çalışmayı bıraktığında sorulmasını bekleyin.",
+        "title": "Sunucuyu veya anahtarı değiştir",
+        "description": "Bu Home Assistant'ın ProgressCove'a ulaştığı adres ve isteğe bağlı olarak yeni bir anahtar. Mevcut anahtarı korumak için anahtar alanını boş bırakın. Yeni anahtar, ilki gibi eşleştirilir.",
         "data": {
-          "base_url": "Sunucu"
+          "base_url": "Sunucu",
+          "token": "Yeni API anahtarı (isteğe bağlı)"
         }
       },
       "reauth_confirm": {
@@ -48,6 +49,10 @@
       "reconfigure_insecure": {
         "title": "Bu adres şifreli değil",
         "description": "{url} http kullanıyor, bu yüzden jetonunuz ve görev adlarınız ağ üzerinde açık şekilde iletilir. Güvendiğiniz ve yönettiğiniz bir ağda sorun değildir. İnternet üzerinde ise sizinle sunucu arasındaki herkes bunları okuyabilir.\n\nYalnızca bu adresin kendi ağınızda kaldığını biliyorsanız devam edin."
+      },
+      "read_only": {
+        "title": "Bu anahtar salt okunur",
+        "description": "Listeleriniz ve kartlarınız görevlerinizi gösterir, ancak işaretleme, ekleme ve düğmeler kapalıdır. Bunları açmak için ProgressCove'da okuma ve yazma yetkili bir anahtar oluşturup entegrasyon sayfasında Yeniden yapılandır altına yapıştırın.\n\nBu anahtarın yapabildikleriyle kuruluma devam edin."
       }
     },
     "abort": {
@@ -60,7 +65,8 @@
       "cannot_connect": "Sunucuya ulaşılamadı.",
       "not_paired_yet": "Henüz eşleştirilmedi. Kodu ProgressCove'a girin ve tekrar deneyin.",
       "no_projects": "Bu hesapta gösterilecek bir şey yok.",
-      "invalid_url": "Bu bir web adresine benzemiyor. https:// ile başlamalı"
+      "invalid_url": "Bu bir web adresine benzemiyor. https:// ile başlamalı",
+      "different_account": "Bu anahtar farklı bir hesaba ait. Hesap değiştirmek için entegrasyonu kaldırıp yeniden ekleyin."
     }
   },
   "options": {
@@ -176,6 +182,10 @@
     "stale_entities": {
       "title": "Bazı varlıklar artık var olmayan görevleri gösteriyor",
       "description": "Bunlar sunucuyla doğrulanamadı, bu yüzden hiçbir şey kaldırılmadı: {names}. O görevleri sildiyseniz bunları entegrasyon sayfasından silin. Silmediyseniz, sunucuya ulaşılabildiğinde kendiliğinden geri gelirler."
+    },
+    "read_only": {
+      "title": "ProgressCove salt okunur modda",
+      "description": "Bu Home Assistant'ın kullandığı anahtar yalnızca okuyabilir. Listeler ve kartlar görevlerinizi gösterir, ancak işaretleme, ekleme ve düğmeler kapalıdır. Bunları açmak için ProgressCove'da Ayarlar → Gelişmiş → API anahtarları altında okuma ve yazma yetkili bir anahtar oluşturun, ardından bu entegrasyonu açıp menüsünden Yeniden yapılandır'ı seçin ve yeni anahtarı oraya yapıştırın."
     }
   }
 }

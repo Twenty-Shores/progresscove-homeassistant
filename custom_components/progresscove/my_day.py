@@ -17,11 +17,11 @@ from homeassistant.components.todo import (
 from homeassistant.exceptions import HomeAssistantError
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import STATUS_COMPLETED
+from .const import ATTR_READ_ONLY, STATUS_COMPLETED
 from .coordinator import ProgressCoveCoordinator
 from .pending import complete
 from .names import display_name
-from .helpers import _parse_due, surfaced, repeats
+from .helpers import _parse_due, surfaced, repeats, timezone_of
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -41,10 +41,12 @@ class ProgressCoveMyDayEntity(CoordinatorEntity[ProgressCoveCoordinator], TodoLi
 
     _attr_has_entity_name = True
     _attr_name = "My Day"
-    _attr_supported_features = TodoListEntityFeature.UPDATE_TODO_ITEM
 
     def __init__(self, coordinator: ProgressCoveCoordinator, entry_id: str) -> None:
         super().__init__(coordinator)
+        self._attr_supported_features = (
+            0 if coordinator.read_only else TodoListEntityFeature.UPDATE_TODO_ITEM
+        )
         self._attr_unique_id = f"{entry_id}-my-day"
 
     @property
@@ -59,7 +61,7 @@ class ProgressCoveMyDayEntity(CoordinatorEntity[ProgressCoveCoordinator], TodoLi
                     uid=node_id,
                     summary=display_name(entry.get("name")),
                     status=self._status_of(node_id),
-                    due=_parse_due(entry.get("timeUtc")),
+                    due=_parse_due(entry.get("timeUtc"), timezone_of(self.hass)),
                 )
             )
         return items
@@ -80,6 +82,7 @@ class ProgressCoveMyDayEntity(CoordinatorEntity[ProgressCoveCoordinator], TodoLi
     def extra_state_attributes(self) -> dict[str, Any]:
         """What `TodoItem` cannot carry: section, depth, and the project each item belongs to."""
         return {
+            ATTR_READ_ONLY: self.coordinator.read_only,
             "items": [
                 {
                     "id": entry.get("id"),

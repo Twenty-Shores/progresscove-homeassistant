@@ -217,6 +217,7 @@ class ProgressCoveCard extends HTMLElement {
           name: attrs.friendly_name ?? "Project",
           done: attrs.items_done ?? 0,
           total: attrs.items_total ?? 0,
+          readOnly: attrs.read_only === true,
           tasks: (loaded?.items ?? []).map(item => ({
             name: item.summary ?? item.name,
             due: item.due ?? null,
@@ -280,6 +281,7 @@ class ProgressCoveCard extends HTMLElement {
         .pc-task,.pc-sub{background:none;border:0;width:100%;text-align:left;font:inherit;
                          color:inherit;cursor:pointer}
         .pc-task:focus-visible,.pc-sub:focus-visible{outline:2px solid ${ACCENT};outline-offset:2px}
+        .pc-static{cursor:default}
         .pc-sub{display:flex;align-items:center;gap:9px;padding:4px 0}
         .pc-sub .pc-box{width:14px;height:14px;border-radius:4px;margin-top:0}
         .pc-sub .pc-box.on::after{left:4px;top:1px;width:3px;height:7px;border-width:0 2px 2px 0}
@@ -296,7 +298,7 @@ class ProgressCoveCard extends HTMLElement {
 
     // innerHTML replaces the DOM on every render, so listeners cannot be bound once in the
     // constructor.
-    for (const row of this.querySelectorAll(".pc-task, .pc-sub")) {
+    for (const row of this.querySelectorAll("button.pc-task, button.pc-sub")) {
       row.addEventListener("click", () =>
         this._toggle(row.dataset.node, row.dataset.done === "true"));
     }
@@ -377,32 +379,45 @@ class ProgressCoveCard extends HTMLElement {
         </div>
         ${pct > 0 ? `<div class="pc-bar"><div class="pc-fill ${complete ? "done" : ""}"
              style="width:${pct}%"></div></div>` : `<div style="height:12px"></div>`}
-        ${p.tasks.map(t => this._task(t)).join("")}
+        ${p.tasks.map(t => this._task(t, p.readOnly)).join("")}
       </div>`;
   }
 
-  _task(t) {
+  _task(t, readOnly) {
     const subDone = t.subtasks.filter(s => s.done).length;
     const meta = [
       dueLabel(t.due),
       t.subtasks.length ? `${subDone} of ${t.subtasks.length}` : null,
     ].filter(Boolean).join(" · ");
+    const task = rowTag("pc-task", t.uid, t.done, readOnly);
     return `
-      <button class="pc-task" data-node="${esc(t.uid ?? "")}" data-done="${t.done}"
-              aria-pressed="${t.done}">
+      ${task.open}
         <span class="pc-box ${t.done ? "on" : ""}"></span>
         <span class="pc-label">
           <div class="pc-title ${t.done ? "done" : ""}">${esc(t.name)}</div>
           ${meta ? `<div class="pc-meta">${esc(meta)}</div>` : ""}
         </span>
-      </button>
-      ${t.subtasks.length ? `<div class="pc-subs">${t.subtasks.map(s => `
-        <button class="pc-sub" data-node="${esc(s.uid ?? "")}" data-done="${s.done}"
-                aria-pressed="${s.done}">
+      ${task.close}
+      ${t.subtasks.length ? `<div class="pc-subs">${t.subtasks.map(s => {
+        const sub = rowTag("pc-sub", s.uid, s.done, readOnly);
+        return `
+        ${sub.open}
           <span class="pc-box ${s.done ? "on" : ""}"></span>
           <span class="pc-sub-title ${s.done ? "done" : ""}">${esc(s.name)}</span>
-        </button>`).join("")}</div>` : ""}`;
+        ${sub.close}`;
+      }).join("")}</div>` : ""}`;
   }
+}
+
+/** A row's opening and closing tags: a button that can be tapped, or a plain block when the
+ *  account is read-only and a tap would have nothing to do. */
+function rowTag(className, uid, done, readOnly) {
+  if (readOnly) return { open: `<div class="${className} pc-static">`, close: "</div>" };
+  return {
+    open: `<button class="${className}" data-node="${esc(uid ?? "")}" data-done="${done}"
+              aria-pressed="${done}">`,
+    close: "</button>",
+  };
 }
 
 /** Milliseconds sentinel marking a date-only due, meaning no time was set. A human never sets
@@ -444,3 +459,5 @@ if (!window.customCards.some((c) => c.type === "progresscove-card"))
     name: "ProgressCove",
     description: "Projects, tasks and subtasks with progress, the calm view.",
   });
+
+console.info(`progresscove-card %s`, new URL(import.meta.url).searchParams.get("v") ?? "unversioned");

@@ -21,7 +21,7 @@ from homeassistant.helpers import config_validation as cv
 from .const import DOMAIN, STATUS_COMPLETED
 from .pending import complete
 from .names import display_name
-from .helpers import surfaced, repeats
+from .helpers import refuse_if_read_only, surfaced, repeats
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -59,6 +59,7 @@ async def _complete(call: ServiceCall) -> None:
 async def _reopen(call: ServiceCall) -> None:
     node_id = call.data[ATTR_NODE_ID]
     coordinator = _coordinator_for(call.hass, node_id)
+    refuse_if_read_only(coordinator)
     if coordinator.pending.undo(node_id):
         # Cancelling changes nothing on the server, so nothing else would repaint the box.
         coordinator.async_update_listeners()

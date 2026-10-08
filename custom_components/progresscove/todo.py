@@ -33,14 +33,15 @@ from .const import (
     ATTR_ITEMS_TOTAL,
     ATTR_NESTED_DONE,
     ATTR_NESTED_TOTAL,
+    ATTR_READ_ONLY,
     CONF_PROJECTS,
     STATUS_COMPLETED,
 )
 from .coordinator import ProgressCoveCoordinator
 from .my_day import ProgressCoveMyDayEntity
-from .pending import needs_window
+from .pending import needs_window, send_completion
 from .names import display_name
-from .helpers import _parse_due, surfaced
+from .helpers import _parse_due, due_for_api, surfaced, timezone_of
 
 _LOGGER = logging.getLogger(__name__)
 
@@ -87,7 +88,7 @@ class ProgressCoveTodoListEntity(CoordinatorEntity[ProgressCoveCoordinator], Tod
 
     # MOVE_TODO_ITEM is deliberately absent: ordering is the app's own, so letting Home Assistant
     # reorder would advertise a capability we cannot honour.
-    _attr_supported_features = (
+    _WRITE_FEATURES = (
         TodoListEntityFeature.CREATE_TODO_ITEM
         | TodoListEntityFeature.UPDATE_TODO_ITEM
         | TodoListEntityFeature.DELETE_TODO_ITEM
@@ -102,6 +103,8 @@ class ProgressCoveTodoListEntity(CoordinatorEntity[ProgressCoveCoordinator], Tod
         project: dict[str, Any],
     ) -> None:
         super().__init__(coordinator)
+        # No features at all is how Home Assistant hides the add, tick and delete controls.
+        self._attr_supported_features = 0 if coordinator.read_only else self._WRITE_FEATURES
         self._project_id: str = project["id"]
         self._attr_unique_id = f"{entry_id}-{self._project_id}"
         # The full path, so two lists of the same name are tellable apart.
@@ -137,7 +140,7 @@ class ProgressCoveTodoListEntity(CoordinatorEntity[ProgressCoveCoordinator], Tod
                     uid=task["id"],
                     summary=display_name(task["name"]),
                     status=TodoItemStatus.COMPLETED if complete else TodoItemStatus.NEEDS_ACTION,
-                    due=_parse_due(task.get("due_at")),
+                    due=_parse_due(task.get("due_at"), timezone_of(self.hass)),
                 )
             )
             if subs:
@@ -166,6 +169,7 @@ class ProgressCoveTodoListEntity(CoordinatorEntity[ProgressCoveCoordinator], Tod
         """Counts only, for automations and for the card's header."""
         return {
             ATTR_NODE_ID: self._project_id,
+            ATTR_READ_ONLY: self.coordinator.read_only,
             ATTR_ITEMS_DONE: self._done,
             ATTR_ITEMS_TOTAL: self._total,
             # An empty project is not a finished one.
@@ -180,7 +184,7 @@ class ProgressCoveTodoListEntity(CoordinatorEntity[ProgressCoveCoordinator], Tod
         }
 
     async def async_create_todo_item(self, item: TodoItem) -> None:
-        due = item.due.isoformat() if item.due else None
+        due = due_for_api(item.due, timezone_of(self.hass))
         # One tier below whatever this list is, since a list can sit at any tier.
         parent = self.coordinator.data.by_id.get(self._project_id, {})
         depth = int(parent.get("depth", 2)) + 1
@@ -213,7 +217,7 @@ class ProgressCoveTodoListEntity(CoordinatorEntity[ProgressCoveCoordinator], Tod
         # still arrives carrying the existing `due`. The API reads `due_at: null` as CLEAR and an
         # absent key as leave alone, so sending it unconditionally wipes the date on any task that
         # has none. Only send it when it actually differs.
-        was_due = _parse_due(current.get("due_at"))
+        was_due = _parse_due(current.get("due_at"), timezone_of(self.hass))
         due_changed = item.due != was_due
 
         # One update can be two calls and the first may land before the second fails, so the
@@ -225,9 +229,7 @@ class ProgressCoveTodoListEntity(CoordinatorEntity[ProgressCoveCoordinator], Tod
                 if now_done:
                     # Held for the undo window, as on the switch and My Day.
                     async def send() -> None:
-                        with surfaced("complete that task"):
-                            await self.coordinator.client.async_complete(uid)
-                        await self.coordinator.async_refresh()
+                        await send_completion(self.coordinator, uid)
 
                     # _apply() first, or the OLD unticked list is pushed to the frontend.
                     def rerender() -> None:
@@ -250,7 +252,7 @@ class ProgressCoveTodoListEntity(CoordinatorEntity[ProgressCoveCoordinator], Tod
                 if new_name is not None:
                     changes["name"] = new_name
                 if due_changed:
-                    changes["due_at"] = item.due.isoformat() if item.due else None
+                    changes["due_at"] = due_for_api(item.due, timezone_of(self.hass))
                 with surfaced("update that task"):
                     await self.coordinator.client.async_update_task(uid, **changes)
         finally:

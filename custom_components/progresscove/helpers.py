@@ -13,16 +13,22 @@ from homeassistant.core import HomeAssistant
 from homeassistant.exceptions import HomeAssistantError
 
 from .api import ProgressCoveError, ProgressCoveRejected
-from .const import DEFAULT_SCAN_MINUTES, MAX_SCAN_MINUTES, MIN_SCAN_MINUTES
+from .const import DEFAULT_SCAN_MINUTES, MAX_SCAN_MINUTES, MIN_SCAN_MINUTES, READ_ONLY_MESSAGE
 
 _LOGGER = logging.getLogger(__name__)
 
 
-def _parse_due(value: str | None) -> datetime | date | None:
+# The apps store a due day with no time of day as 23:59:59.999 in the person's own timezone. The
+# .999 is the marker: nobody picks milliseconds.
+_NO_TIME_MICROSECOND = 999_000
+
+
+def _parse_due(value: str | None, zone: ZoneInfo) -> datetime | date | None:
     """The API sends tz-aware ISO-8601; HA wants a date or an aware datetime.
 
-    Never returns a naive datetime: HA rejects those, and the project's timezone invariant forbids
-    creating one anywhere.
+    A due day with no time comes back as that day in the house's timezone, so HA shows a date
+    rather than 23:59. Never returns a naive datetime: HA rejects those, and the project's timezone
+    invariant forbids creating one anywhere.
     """
     if not value:
         return None
@@ -30,7 +36,26 @@ def _parse_due(value: str | None) -> datetime | date | None:
         parsed = datetime.fromisoformat(value.replace("Z", "+00:00"))
     except ValueError:
         return None
-    return parsed if parsed.tzinfo else None
+    if parsed.tzinfo is None:
+        return None
+    if parsed.microsecond == _NO_TIME_MICROSECOND:
+        return parsed.astimezone(zone).date()
+    return parsed
+
+
+def due_for_api(due: date | datetime | None, zone: ZoneInfo) -> str | None:
+    """A due from HA as the API takes it: always an instant with its offset.
+
+    A date becomes the end of that day in the house's timezone, marked as having no time, the way
+    the apps store a due day. A datetime without a timezone is a wall-clock time in the house.
+    """
+    if due is None:
+        return None
+    if isinstance(due, datetime):
+        return (due if due.tzinfo else due.replace(tzinfo=zone)).isoformat()
+    return datetime(
+        due.year, due.month, due.day, 23, 59, 59, _NO_TIME_MICROSECOND, tzinfo=zone
+    ).isoformat()
 
 
 @contextmanager
@@ -47,6 +72,16 @@ def surfaced(action: str) -> Iterator[None]:
     except ProgressCoveError as err:
         _LOGGER.error("Could not %s: %s", action, err)
         raise HomeAssistantError(f"ProgressCove could not {action}.") from err
+
+
+def refuse_if_read_only(coordinator) -> None:
+    """Raise before a write the token would only have bounced.
+
+    The server enforces this regardless. Asking first spares a round trip and puts the reason in
+    front of the person instead of a generic failure.
+    """
+    if coordinator.read_only:
+        raise HomeAssistantError(READ_ONLY_MESSAGE)
 
 
 def repeats(node: dict) -> bool:

@@ -287,6 +287,17 @@ A token is **read-only** or **read and write**, chosen when you create it. A rea
 show your tasks and complete nothing, which suits a dashboard you do not want to tap by accident.
 The choice is fixed for the life of the token; to change it, create a new one.
 
+With a read-only token the integration says so when you set it up, then carries on with what the
+token can do. Lists, My Day and the cards show your tasks. Ticking, adding and deleting are off,
+there are no button or switch entities, the services refuse with a read-only message, and the
+cards draw rows you cannot tap. A **ProgressCove is read-only** repair stays on the integration
+page until the token can write.
+
+To turn the controls on, create a read and write token in ProgressCove, open the integration,
+choose **Reconfigure** from its menu and paste the new token there. Like the first one it needs
+pairing, and it has to belong to the same account. The integration reloads with the controls
+back.
+
 A token can be revoked whenever you like, from the same **API Tokens** screen that created it.
 Revoking cuts off that Home Assistant instance immediately and touches nothing else, so a lost or
 retired box is one tap rather than a password change.
