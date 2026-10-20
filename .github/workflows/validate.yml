@@ -59,3 +59,22 @@ jobs:
 
       - name: Lint
         run: pipx run ruff check .
+
+  # Its own job: the suite above stubs Home Assistant's modules, this one runs the integration
+  # inside a real Home Assistant, pinned to the release in tests/real_ha/requirements.txt, so the
+  # two never share a process.
+  real-ha:
+    name: tests in Home Assistant
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.13"
+
+      - name: Install
+        run: pip install -r tests/real_ha/requirements.txt
+
+      - name: pytest
+        run: python -m pytest tests/real_ha -q

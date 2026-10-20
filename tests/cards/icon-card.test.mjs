@@ -6,7 +6,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { loadCard, fakeHass } from "./harness.mjs";
+import { loadCard, fakeHass, underDevice } from "./harness.mjs";
 
 const { defined } = await loadCard("progresscove-icon-card.js");
 const Card = defined.get("progresscove-icon-card");
@@ -129,4 +129,20 @@ test("the editor does not rebuild the form under the user's cursor", () => {
   editor.setConfig({ groups: [LIST] });
   assert.equal(editor.children.length, 1, "a second form was appended");
   assert.equal(editor.children[0], first, "the form was replaced rather than updated");
+});
+
+test("a followed project still matches once the device name is in front of it", () => {
+  for (const device of [{}, { nameByUser: "Chores" }]) {
+    const named = world();
+    named["button.bins"].attributes.friendly_name = "Bins";
+    const { states, registry } = underDevice(named, device);
+    const instance = new Card();
+    instance.setConfig({ groups: [LIST] });
+    instance._hass = fakeHass(states, {}, registry);
+    const tiles = instance._tiles().map(state => state.entity_id).sort();
+    assert.deepEqual(tiles, ["button.bins", "button.plants"]);
+    assert.equal(instance._heading(), "Repeating home tasks");
+    const bins = instance._tiles().find(state => state.entity_id === "button.bins");
+    assert.ok(instance._tile(bins).includes('aria-label="Bins, due today"'));
+  }
 });

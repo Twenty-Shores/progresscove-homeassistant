@@ -1,8 +1,10 @@
 /**
  * Today in its three sections, which the stock to-do card flattens into one checklist.
  *
- * Sections, depth, project and emoji come off the entity's attributes, since a `TodoItem` has no
- * room for them. Ticking calls `todo.update_item`, the same service the stock card calls.
+ * The rows come from Home Assistant's own to-do item subscription, the one the stock card uses,
+ * which pushes them whenever the entity changes. Section, path, emoji and time come from the
+ * `progresscove.get_my_day_details` action, since a `TodoItem` has no room for them. Ticking calls
+ * `todo.update_item`, the same service the stock card calls.
  *
  * Design values are copied by hand from the app's tokens, as in the other two cards.
  */
@@ -13,7 +15,7 @@ const CARD_PADDING = 16;
 // tokens.css: the app's accent
 const ACCENT = "#009999";
 
-const DEFAULT_ENTITY = "todo.my_day";
+const DEFAULT_ENTITY = "todo.progresscove_my_day";
 
 // The server's own order. Names are ours: "due" is a date, but a person reads it as today's work.
 const SECTIONS = [
@@ -90,13 +92,29 @@ class ProgressCoveMyDayCard extends HTMLElement {
   }
 
   setConfig(config) {
+    const entity = config.entity ?? DEFAULT_ENTITY;
+    if (entity !== this._config?.entity) {
+      this._unsubscribe();
+      this._rows = undefined;
+      this._failed = false;
+    }
     this._config = { entity: DEFAULT_ENTITY, ...config };
+    this._subscribe();
     this._render();
   }
 
   set hass(hass) {
     this._hass = hass;
+    this._subscribe();
     this._render();
+  }
+
+  connectedCallback() {
+    this._subscribe();
+  }
+
+  disconnectedCallback() {
+    this._unsubscribe();
   }
 
   getCardSize() {
@@ -104,7 +122,80 @@ class ProgressCoveMyDayCard extends HTMLElement {
   }
 
   _state() {
-    return this._hass?.states?.[this._config.entity];
+    const state = this._hass?.states?.[this._config.entity];
+    return state?.state === "unavailable" ? undefined : state;
+  }
+
+  /** Listen for the entity's items. Home Assistant pushes them once on subscribing and again on
+   *  every change, and resubscribes by itself after a reconnect.
+   *
+   *  It does not carry a subscription over to an entity set up again, as every reload of the
+   *  integration does: the new entity knows nothing of the old one's listeners and the card would
+   *  sit on the old rows. A reload passes the state through unavailable, which moves its
+   *  last_changed, so a moved last_changed is answered with a fresh subscription. */
+  _subscribe() {
+    const state = this.isConnected && this._config ? this._state() : undefined;
+    if (!state) {
+      this._unsubscribe();
+      return;
+    }
+    // Subscribed for this state already, or failed to: a failure is not retried on every state
+    // change in the house, only once this entity's own state moves.
+    if (this._subscribedAt === state.last_changed) return;
+    this._unsubscribe();
+    const entity = this._config.entity;
+    const subscription = this._hass.connection.subscribeMessage(
+      (message) => this._received(entity, message.items ?? []),
+      { type: "todo/item/subscribe", entity_id: entity },
+    );
+    this._subscription = subscription;
+    this._subscribedAt = state.last_changed;
+    subscription.catch((err) => {
+      if (this._subscription === subscription) this._subscription = undefined;
+      this._fail(`could not subscribe to ${entity}`, err);
+    });
+  }
+
+  _unsubscribe() {
+    // A subscription that failed was reported where it failed and has nothing to undo.
+    this._subscription?.then((unsubscribe) => unsubscribe(), () => {});
+    this._subscription = undefined;
+    this._subscribedAt = undefined;
+  }
+
+  /** Pair the pushed items with their details before drawing either, so a row never shows without
+   *  its section. Only the newest push is drawn: an older answer arriving late is dropped. */
+  async _received(entity, items) {
+    const asked = (this._asked ?? 0) + 1;
+    this._asked = asked;
+    let answer;
+    try {
+      answer = await this._hass.callService(
+        "progresscove", "get_my_day_details", {}, { entity_id: entity }, true, true
+      );
+    } catch (err) {
+      if (asked === this._asked) this._fail(`could not read ${entity}`, err);
+      return;
+    }
+    if (asked !== this._asked || entity !== this._config.entity) return;
+    const details = new Map(
+      (answer?.response?.[entity]?.items ?? []).map((detail) => [detail.uid, detail])
+    );
+    this._rows = items.map((item) => ({
+      id: item.uid,
+      name: item.summary,
+      done: item.status === "completed",
+      ...details.get(item.uid),
+    }));
+    this._failed = false;
+    this._render();
+  }
+
+  /** Never silently: an empty card would read as a day with nothing in it. */
+  _fail(what, err) {
+    console.error(`progresscove-myday-card: ${what}`, err);
+    this._failed = true;
+    this._render();
   }
 
   async _toggle(uid, done) {
@@ -117,10 +208,17 @@ class ProgressCoveMyDayCard extends HTMLElement {
     });
   }
 
+  _body(state) {
+    if (!state) return `<div class="pc-empty">${esc(this._config.entity)} is not available.</div>`;
+    if (this._failed) return `<div class="pc-empty">My Day could not be loaded.</div>`;
+    if (!this._rows) return "";
+    if (!this._rows.length) return `<div class="pc-empty">Nothing due today. Enjoy the quiet.</div>`;
+    return SECTIONS.map(s => this._section(s, this._rows)).join("");
+  }
+
   _render() {
     if (!this._config) return;
     const state = this._state();
-    const items = state?.attributes?.items ?? [];
     this._readOnly = state?.attributes?.read_only === true;
 
     this.innerHTML = `
@@ -160,11 +258,7 @@ class ProgressCoveMyDayCard extends HTMLElement {
       </style>
       <div class="pc-card">
         <div class="pc-title">${esc(this._config.title ?? "My Day")}</div>
-        ${!state
-          ? `<div class="pc-empty">${esc(this._config.entity)} is not available.</div>`
-          : items.length
-            ? SECTIONS.map(s => this._section(s, items)).join("")
-            : `<div class="pc-empty">Nothing due today. Enjoy the quiet.</div>`}
+        ${this._body(state)}
       </div>`;
 
     for (const row of this.querySelectorAll("button.pc-row")) {
@@ -231,5 +325,3 @@ if (!window.customCards.some((c) => c.type === "progresscove-myday-card"))
     name: "ProgressCove My Day",
     description: "Today's work in sections: today, ongoing, reminders.",
   });
-
-console.info(`progresscove-myday-card %s`, new URL(import.meta.url).searchParams.get("v") ?? "unversioned");

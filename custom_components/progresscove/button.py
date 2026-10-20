@@ -4,32 +4,29 @@
 # for an entity that is broken or gone: cards hide it, automations treat it as a fault, and the log
 # counts it as a problem. A garbage-day button waiting for Friday is none of those things. Pressing
 # early is refused by the press itself, which is where a "not yet" belongs, and unavailable is kept
-# for the one case it really means: the task is gone from the account.
+# for what it really means: the task is gone from the account, or the server cannot be reached.
 
 from __future__ import annotations
 
-from datetime import datetime
-import logging
 from typing import Any
 
 from homeassistant.components.button import ButtonEntity
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import dt as dt_util
 
-from .const import STATUS_COMPLETED
-from .coordinator import ProgressCoveCoordinator
-from .pending import complete, refuse_if_too_early
+from .const import ATTR_NODE_ID, CONF_NODE_ID, STATUS_COMPLETED, SUBENTRY_BUTTON
+from .coordinator import ProgressCoveConfigEntry, ProgressCoveCoordinator
+from .device import account_device
+from .helpers import due_date, is_due
 from .names import display_name
-from .helpers import due_date, timezone_of, is_due
-
-_LOGGER = logging.getLogger(__name__)
+from .pending import complete, refuse_if_too_early
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: ProgressCoveConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
     """One button per subentry the user added. Never automatic: a button per task would be hundreds.
@@ -37,17 +34,17 @@ async def async_setup_entry(
     Entities are attached to their SUBENTRY, not just the entry, so removing "Add button → Bulk
     pickup" in the UI removes exactly that entity and leaves the others alone.
     """
-    coordinator: ProgressCoveCoordinator = entry.runtime_data
+    coordinator = entry.runtime_data
     if coordinator.read_only:
         return
     for subentry_id, subentry in entry.subentries.items():
-        if subentry.subentry_type != "button":
+        if subentry.subentry_type != SUBENTRY_BUTTON:
             continue
-        node_id = subentry.data.get("node_id")
+        node_id = subentry.data.get(CONF_NODE_ID)
         if node_id not in coordinator.data.by_id:
             continue
         async_add_entities(
-            [ProgressCoveTaskButton(coordinator, entry.entry_id, node_id)],
+            [ProgressCoveTaskButton(coordinator, coordinator.account_id, node_id)],
             config_subentry_id=subentry_id,
         )
 
@@ -56,21 +53,22 @@ class ProgressCoveTaskButton(CoordinatorEntity[ProgressCoveCoordinator], ButtonE
     """Press to complete today's occurrence."""
 
     _attr_has_entity_name = True
+    # The name when the task has none to show; a named task overrides it with its own.
+    _attr_translation_key = "task"
+    _unrecorded_attributes = frozenset({ATTR_NODE_ID, "emoji", "path"})
 
     def __init__(
         self,
         coordinator: ProgressCoveCoordinator,
-        entry_id: str,
+        account_id: str,
         node_id: str,
     ) -> None:
         super().__init__(coordinator)
         self._node_id = node_id
-        self._attr_unique_id = f"{entry_id}-button-{node_id}"
-        node = coordinator.data.by_id.get(node_id, {})
-        self._attr_name = display_name(node.get("name")) or "Task"
-        # The task's own emoji, so a row of these reads as icons rather than words. HA takes an mdi
-        # name here, not an emoji, so the emoji travels as an attribute for the card to render.
-        self._attr_icon = "mdi:checkbox-marked-circle-outline"
+        self._attr_unique_id = f"{account_id}-button-{node_id}"
+        self._attr_device_info = account_device(account_id)
+        if name := display_name(coordinator.data.by_id.get(node_id, {}).get("name")):
+            self._attr_name = name
 
     @property
     def _node(self) -> dict[str, Any]:
@@ -78,8 +76,11 @@ class ProgressCoveTaskButton(CoordinatorEntity[ProgressCoveCoordinator], ButtonE
 
     @property
     def available(self) -> bool:
-        """Only false when the task itself is gone, deleted in the app, so nothing to press."""
-        return bool(self._node)
+        """False while the poll is failing, and when the task is gone from the account.
+
+        Never for a task that is merely not due: see the note at the top of this module.
+        """
+        return super().available and bool(self._node)
 
     @property
     def _actionable(self) -> bool:
@@ -92,17 +93,17 @@ class ProgressCoveTaskButton(CoordinatorEntity[ProgressCoveCoordinator], ButtonE
         """
         if self.coordinator.pending.is_pending(self._node_id):
             return False
-        return is_due(self._node, self.hass)
+        return is_due(self._node)
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
         """Enough for a card to say WHEN without pressing anything."""
-        zone = timezone_of(self.hass)
+        zone = dt_util.get_default_time_zone()
         node = self._node
         due = due_date(node, zone)
-        today = datetime.now(zone).date()
+        today = dt_util.now().date()
         return {
-            "node_id": self._node_id,
+            ATTR_NODE_ID: self._node_id,
             "emoji": node.get("icon"),
             "due_date": due.isoformat() if due else None,
             "due_today": bool(due and due == today),
@@ -126,14 +127,13 @@ class ProgressCoveTaskButton(CoordinatorEntity[ProgressCoveCoordinator], ButtonE
         A repeat goes through the undo window like everywhere else, so pressing the button and
         ticking the same task's switch behave the same.
         """
-        refuse_if_too_early(self.coordinator, self._node, self._attr_name, self.hass)
+        refuse_if_too_early(self.coordinator, self._node, display_name(self._node.get("name")))
         complete(self.coordinator, self._node_id, self.async_write_ha_state)
 
     @callback
     def _handle_coordinator_update(self) -> None:
         # Follow a rename made in the app: the name was read once at construction, so without this
         # the wall button kept whatever it was called on the day it was added.
-        node = self._node
-        if node:
-            self._attr_name = display_name(node.get("name")) or self._attr_name
+        if name := display_name(self._node.get("name")):
+            self._attr_name = name
         super()._handle_coordinator_update()

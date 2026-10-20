@@ -3,14 +3,14 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { loadCard, fakeHass } from "./harness.mjs";
+import { loadCard, fakeConnection, fakeHass } from "./harness.mjs";
 
 const projects = await loadCard("progresscove-card.js");
 const myDay = await loadCard("progresscove-myday-card.js");
 const icons = await loadCard("progresscove-icon-card.js");
 
 const LIST = "todo.home_shopping";
-const MY_DAY = "todo.my_day";
+const MY_DAY = "todo.progresscove_my_day";
 
 function listState(readOnly) {
   return {
@@ -74,29 +74,32 @@ test("an entity that says nothing about it is treated as writable", async () => 
   assert.ok(instance.innerHTML.includes("<button"));
 });
 
-function myDayHtml(readOnly) {
+async function myDayHtml(readOnly) {
   const instance = new (myDay.defined.get("progresscove-myday-card"))();
+  instance.isConnected = true;
   instance.setConfig({});
-  instance.hass = fakeHass({
-    [MY_DAY]: {
-      entity_id: MY_DAY,
-      attributes: {
-        read_only: readOnly,
-        items: [{ id: "bins", name: "Bins", section: "due", done: false, path: "Home › Bins" }],
-      },
-    },
-  });
+  const connection = fakeConnection();
+  const hass = fakeHass(
+    { [MY_DAY]: { entity_id: MY_DAY, state: "1", last_changed: "t1",
+                  attributes: { read_only: readOnly } } },
+    { "progresscove.get_my_day_details": {
+      response: { [MY_DAY]: { items: [{ uid: "bins", section: "due", path: "Home › Bins" }] } },
+    } },
+  );
+  hass.connection = connection;
+  instance.hass = hass;
+  await connection.push([{ uid: "bins", summary: "Bins", status: "needs_action" }]);
   return instance.innerHTML;
 }
 
-test("the My Day card draws no buttons when read-only", () => {
-  const html = myDayHtml(true);
+test("the My Day card draws no buttons when read-only", async () => {
+  const html = await myDayHtml(true);
   assert.ok(!html.includes("<button"), "a tap target was drawn");
   assert.ok(html.includes("Bins"));
 });
 
-test("the My Day card draws buttons when it can write", () => {
-  assert.ok(myDayHtml(false).includes('<button class="pc-row"'));
+test("the My Day card draws buttons when it can write", async () => {
+  assert.ok((await myDayHtml(false)).includes('<button class="pc-row"'));
 });
 
 function iconHtml(config, states) {

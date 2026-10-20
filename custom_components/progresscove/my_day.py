@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-import logging
 from typing import Any
 
 from homeassistant.components.todo import (
@@ -14,22 +13,18 @@ from homeassistant.components.todo import (
     TodoListEntity,
     TodoListEntityFeature,
 )
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.core import ServiceCall, ServiceResponse
+from homeassistant.exceptions import ServiceValidationError
+from homeassistant.helpers.entity import Entity
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import dt as dt_util
 
 from .const import ATTR_READ_ONLY, STATUS_COMPLETED
 from .coordinator import ProgressCoveCoordinator
-from .pending import complete
+from .device import account_device
+from .helpers import parse_due, repeats, surfaced, translated_error
 from .names import display_name
-from .helpers import _parse_due, surfaced, repeats, timezone_of
-
-_LOGGER = logging.getLogger(__name__)
-
-# In the order the server returns them. `TodoItem` has no section field, so the order is the only
-# thing carrying it, and the full structure travels on the attributes for our card.
-SECTION_DUE = "due"
-SECTION_ONGOING = "ongoing"
-SECTION_ALARM = "alarm"
+from .pending import complete
 
 
 class ProgressCoveMyDayEntity(CoordinatorEntity[ProgressCoveCoordinator], TodoListEntity):
@@ -40,14 +35,17 @@ class ProgressCoveMyDayEntity(CoordinatorEntity[ProgressCoveCoordinator], TodoLi
     """
 
     _attr_has_entity_name = True
-    _attr_name = "My Day"
+    _attr_translation_key = "my_day"
 
-    def __init__(self, coordinator: ProgressCoveCoordinator, entry_id: str) -> None:
+    def __init__(self, coordinator: ProgressCoveCoordinator, account_id: str) -> None:
         super().__init__(coordinator)
         self._attr_supported_features = (
-            0 if coordinator.read_only else TodoListEntityFeature.UPDATE_TODO_ITEM
+            TodoListEntityFeature(0)
+            if coordinator.read_only
+            else TodoListEntityFeature.UPDATE_TODO_ITEM
         )
-        self._attr_unique_id = f"{entry_id}-my-day"
+        self._attr_unique_id = f"{account_id}-my-day"
+        self._attr_device_info = account_device(account_id)
 
     @property
     def todo_items(self) -> list[TodoItem]:
@@ -61,7 +59,7 @@ class ProgressCoveMyDayEntity(CoordinatorEntity[ProgressCoveCoordinator], TodoLi
                     uid=node_id,
                     summary=display_name(entry.get("name")),
                     status=self._status_of(node_id),
-                    due=_parse_due(entry.get("timeUtc"), timezone_of(self.hass)),
+                    due=parse_due(entry.get("timeUtc"), dt_util.get_default_time_zone()),
                 )
             )
         return items
@@ -80,25 +78,30 @@ class ProgressCoveMyDayEntity(CoordinatorEntity[ProgressCoveCoordinator], TodoLi
 
     @property
     def extra_state_attributes(self) -> dict[str, Any]:
-        """What `TodoItem` cannot carry: section, depth, and the project each item belongs to."""
+        """Whether the card may draw tap targets. The items are not here: see `details`."""
+        return {ATTR_READ_ONLY: self.coordinator.read_only}
+
+    def details(self) -> ServiceResponse:
+        """What a `TodoItem` has no field for, per item, in the server's order.
+
+        The section an item sits in, the path to it, its emoji and the time it is for. Served on
+        request rather than as attributes: an attribute is written into the state machine on every
+        change and sent to every browser connected to Home Assistant, whether it shows My Day or
+        not, and the recorder stores none of an entity's attributes once they pass 16 KB.
+        """
+        tree = self.coordinator.data
         return {
-            ATTR_READ_ONLY: self.coordinator.read_only,
             "items": [
                 {
-                    "id": entry.get("id"),
-                    "name": display_name(entry.get("name")),
+                    "uid": entry["id"],
                     "section": entry.get("section"),
                     "time_utc": entry.get("timeUtc"),
-                    "depth": entry.get("depth"),
-                    "project_id": entry.get("containingT2Id"),
-                    "emoji": self.coordinator.data.by_id.get(entry.get("id"), {}).get("icon"),
-                    "path": self.coordinator.data.path_of(entry.get("id", "")),
-                    "done": self._status_of(entry.get("id", "")) == TodoItemStatus.COMPLETED,
+                    "path": tree.path_of(entry["id"]),
+                    "emoji": tree.by_id.get(entry["id"], {}).get("icon"),
                 }
-                for entry in self.coordinator.data.my_day
+                for entry in tree.my_day
                 if entry.get("id")
-            ],
-            "sections": [SECTION_DUE, SECTION_ONGOING, SECTION_ALARM],
+            ]
         }
 
     async def async_update_todo_item(self, item: TodoItem) -> None:
@@ -118,16 +121,28 @@ class ProgressCoveMyDayEntity(CoordinatorEntity[ProgressCoveCoordinator], TodoLi
                 return
             node = self.coordinator.data.by_id.get(uid, {})
             if repeats(node):
-                raise HomeAssistantError(
-                    f"{display_name(node.get('name')) or 'That task'} repeats, so completing it "
-                    "moved it to its next occurrence. Reopening it here would leave it on the "
-                    "wrong day."
+                raise translated_error(
+                    "repeat_cannot_reopen",
+                    ServiceValidationError,
+                    name=display_name(node.get("name")) or uid,
                 )
-            with surfaced("reopen that task"):
+            with surfaced("reopen_failed"):
                 await self.coordinator.client.async_uncomplete(uid)
+            # Not async_request_refresh: in its cooldown a second write waits 10 s to show.
             await self.coordinator.async_refresh()
             return
         if self._status_of(uid) == TodoItemStatus.COMPLETED:
             return
 
         complete(self.coordinator, uid, self.async_write_ha_state)
+
+
+def my_day_details(entity: Entity, call: ServiceCall) -> ServiceResponse:
+    """The `get_my_day_details` action, for whichever to-do entities it was aimed at.
+
+    Registered for every to-do entity of the integration, since Home Assistant offers no narrower
+    target, so a list that is not My Day is refused by name.
+    """
+    if not isinstance(entity, ProgressCoveMyDayEntity):
+        raise translated_error("not_my_day", ServiceValidationError, entity_id=entity.entity_id)
+    return entity.details()

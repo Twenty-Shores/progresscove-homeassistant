@@ -7,7 +7,7 @@
  */
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { loadCard, fakeHass } from "./harness.mjs";
+import { loadCard, fakeHass, underDevice } from "./harness.mjs";
 
 const { defined } = await loadCard("progresscove-card.js");
 const Card = defined.get("progresscove-card");
@@ -363,4 +363,35 @@ test("completing a parent ticks its open children too", async () => {
     after.subtasks.map(s => s.done), after.subtasks.map(() => true),
     "the children the server is about to close stayed visibly open",
   );
+});
+
+test("a list whose bar is hidden keeps its count and draws no bar", () => {
+  const instance = new Card();
+  instance.setConfig({ entities: [LIST] });
+  instance._hass = fakeHass(
+    { [LIST]: { entity_id: LIST, attributes: {
+      friendly_name: "Household", node_id: NODE, items_done: 1, items_total: 3, progress_bar_hidden: true,
+    } } },
+    BOTH,
+  );
+  const [project] = instance._items();
+  assert.equal(project.barHidden, true);
+  const html = instance._project(project);
+  assert.ok(html.includes("1 of 3 done"));
+  assert.ok(!html.includes("pc-bar"));
+});
+
+test("a list without the attribute draws its bar as before", () => {
+  const instance = card(BOTH);
+  const [project] = instance._items();
+  assert.equal(project.barHidden, false);
+  assert.ok(instance._project(project).includes("pc-bar"));
+});
+
+test("a project is named without the device name Home Assistant puts in front", () => {
+  const { states, registry } = underDevice(STATE);
+  const instance = new Card();
+  instance.setConfig({ entities: [LIST] });
+  instance._hass = fakeHass(states, {}, registry);
+  assert.equal(instance._items()[0].name, "Shopping");
 });

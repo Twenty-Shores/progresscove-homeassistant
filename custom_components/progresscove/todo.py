@@ -1,4 +1,4 @@
-"""One to-do list per node the user picked.
+"""One to-do list per list subentry, plus My Day and the inbox, which belong to the account.
 
 The list's direct children are its items. Items are served through `todo.get_items`; the entity's
 attributes carry counts only.
@@ -9,9 +9,8 @@ attributes carry counts only.
 
 from __future__ import annotations
 
-import logging
-import uuid
 from typing import Any
+import uuid
 
 from homeassistant.components.todo import (
     TodoItem,
@@ -19,72 +18,74 @@ from homeassistant.components.todo import (
     TodoListEntity,
     TodoListEntityFeature,
 )
-from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
+from homeassistant.util import dt as dt_util
 
 from .const import (
-    CLOSED_STATUSES,
-    ATTR_ITEMS_DONE,
-    ATTR_NODE_ID,
     ATTR_ITEMS_COMPLETE,
+    ATTR_ITEMS_DONE,
     ATTR_ITEMS_PCT,
     ATTR_ITEMS_TOTAL,
     ATTR_NESTED_DONE,
     ATTR_NESTED_TOTAL,
+    ATTR_NODE_ID,
+    ATTR_PROGRESS_BAR_HIDDEN,
     ATTR_READ_ONLY,
-    CONF_PROJECTS,
+    CLOSED_STATUSES,
+    CONF_NODE_ID,
     STATUS_COMPLETED,
+    SUBENTRY_LIST,
 )
-from .coordinator import ProgressCoveCoordinator
+from .coordinator import ProgressCoveConfigEntry, ProgressCoveCoordinator
+from .device import account_device
+from .helpers import due_for_api, parse_due, surfaced
 from .my_day import ProgressCoveMyDayEntity
-from .pending import needs_window, send_completion
 from .names import display_name
-from .helpers import _parse_due, due_for_api, surfaced, timezone_of
-
-_LOGGER = logging.getLogger(__name__)
+from .pending import needs_window, send_completion
+from .progress_bar import progress_bar_hidden
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: ProgressCoveConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    """One entity per node the user treats as a list, which is their call rather than a tier
-    rule: the level people keep checkable things at differs per branch."""
-    coordinator: ProgressCoveCoordinator = entry.runtime_data
-    selected = entry.data.get(CONF_PROJECTS)
-    candidates = coordinator.data.candidate_lists()
-    if selected:
-        # Honoured exactly, including a node with no children yet: that is a list about to be
-        # filled, not a mistake to correct.
-        chosen = {n["id"] for n in candidates} & set(selected)
-    else:
-        # A fresh entry starts with the nodes that already hold something to check off: taking
-        # all of them would mint an entity per shopping item on first connect.
-        chosen = {n["id"] for n in candidates if coordinator.data.children(n["id"])}
-    entities: list[TodoListEntity] = [
-        ProgressCoveTodoListEntity(coordinator, entry.entry_id, node)
-        for node in candidates
-        if node["id"] in chosen
-    ]
+    """One entity per list subentry, which is the user's call rather than a tier rule: the level
+    people keep checkable things at differs per branch.
+
+    Attached to its subentry, like a button, so removing a list's row removes exactly that entity.
+    A node with no children yet is still a list: one about to be filled, not a mistake to correct.
+    """
+    coordinator = entry.runtime_data
+    for subentry_id, subentry in entry.subentries.items():
+        if subentry.subentry_type != SUBENTRY_LIST:
+            continue
+        node = coordinator.data.by_id.get(subentry.data.get(CONF_NODE_ID))
+        if node is None:
+            continue
+        async_add_entities(
+            [ProgressCoveTodoListEntity(coordinator, coordinator.account_id, node)],
+            config_subentry_id=subentry_id,
+        )
     # Always present, and not a subentry: nobody picked it.
-    entities.append(ProgressCoveMyDayEntity(coordinator, entry.entry_id))
+    entities: list[TodoListEntity] = [
+        ProgressCoveMyDayEntity(coordinator, coordinator.account_id)
+    ]
     # Likewise, when the account has one. An account provisioned before inboxes existed, or one
     # whose provisioning half-failed, simply gets no capture list rather than a broken entity.
     inbox = coordinator.data.by_id.get(coordinator.inbox_id or "")
     if inbox:
-        entities.append(ProgressCoveInboxEntity(coordinator, entry.entry_id, inbox))
+        entities.append(ProgressCoveInboxEntity(coordinator, coordinator.account_id, inbox))
     async_add_entities(entities)
-
-
 
 
 class ProgressCoveTodoListEntity(CoordinatorEntity[ProgressCoveCoordinator], TodoListEntity):
     """A ProgressCove project, as a to-do list."""
 
     _attr_has_entity_name = True
+    _unrecorded_attributes = frozenset({ATTR_NODE_ID})
 
     # MOVE_TODO_ITEM is deliberately absent: ordering is the app's own, so letting Home Assistant
     # reorder would advertise a capability we cannot honour.
@@ -99,17 +100,23 @@ class ProgressCoveTodoListEntity(CoordinatorEntity[ProgressCoveCoordinator], Tod
     def __init__(
         self,
         coordinator: ProgressCoveCoordinator,
-        entry_id: str,
+        account_id: str,
         project: dict[str, Any],
     ) -> None:
         super().__init__(coordinator)
         # No features at all is how Home Assistant hides the add, tick and delete controls.
-        self._attr_supported_features = 0 if coordinator.read_only else self._WRITE_FEATURES
+        self._attr_supported_features = (
+            TodoListEntityFeature(0) if coordinator.read_only else self._WRITE_FEATURES
+        )
         self._project_id: str = project["id"]
-        self._attr_unique_id = f"{entry_id}-{self._project_id}"
-        # The full path, so two lists of the same name are tellable apart.
-        self._attr_name = coordinator.data.path_of(project["id"]) or project["name"]
+        self._attr_unique_id = f"{account_id}-{self._project_id}"
+        self._attr_device_info = account_device(account_id)
+        self._name_after(project)
         self._apply()
+
+    def _name_after(self, project: dict[str, Any]) -> None:
+        """The full path, so two lists of the same name are tellable apart."""
+        self._attr_name = self.coordinator.data.path_of(project["id"]) or project["name"]
 
     @callback
     def _handle_coordinator_update(self) -> None:
@@ -140,7 +147,7 @@ class ProgressCoveTodoListEntity(CoordinatorEntity[ProgressCoveCoordinator], Tod
                     uid=task["id"],
                     summary=display_name(task["name"]),
                     status=TodoItemStatus.COMPLETED if complete else TodoItemStatus.NEEDS_ACTION,
-                    due=_parse_due(task.get("due_at"), timezone_of(self.hass)),
+                    due=parse_due(task.get("due_at"), dt_util.get_default_time_zone()),
                 )
             )
             if subs:
@@ -175,25 +182,31 @@ class ProgressCoveTodoListEntity(CoordinatorEntity[ProgressCoveCoordinator], Tod
             # An empty project is not a finished one.
             ATTR_ITEMS_COMPLETE: self._total > 0 and self._done == self._total,
             ATTR_ITEMS_PCT: round(self._done / self._total * 100) if self._total else 0,
-            # The items themselves are NOT here: an attribute payload is rewritten in full on
-            # every change and truncated past 16 KB, which broke a ~200-task list outright.
+            # The items themselves are NOT here: the attributes are written into the state
+            # machine on every change and sent to every connected browser, and past 16 KB the
+            # recorder logs a warning and stores none of them, counts included.
             ATTR_NESTED_TOTAL: sum(len(v) for v in self._subtasks.values()),
             ATTR_NESTED_DONE: sum(
                 1 for v in self._subtasks.values() for s in v if s["done"]
             ),
+            ATTR_PROGRESS_BAR_HIDDEN: progress_bar_hidden(
+                self.coordinator.data.by_id.get(self._project_id, {})
+            ),
         }
 
     async def async_create_todo_item(self, item: TodoItem) -> None:
-        due = due_for_api(item.due, timezone_of(self.hass))
         # One tier below whatever this list is, since a list can sit at any tier.
         parent = self.coordinator.data.by_id.get(self._project_id, {})
-        depth = int(parent.get("depth", 2)) + 1
         try:
-            with surfaced("add that task"):
+            with surfaced("add_failed"):
                 await self.coordinator.client.async_create_task(
-                    self._project_id, item.summary or "", due_at=due, depth=depth
+                    self._project_id,
+                    item.summary or "",
+                    due_at=due_for_api(item.due, dt_util.get_default_time_zone()),
+                    depth=int(parent.get("depth", 2)) + 1,
                 )
         finally:
+            # Not async_request_refresh: in its cooldown a second write waits 10 s to show.
             await self.coordinator.async_refresh()
 
     async def async_update_todo_item(self, item: TodoItem) -> None:
@@ -217,7 +230,7 @@ class ProgressCoveTodoListEntity(CoordinatorEntity[ProgressCoveCoordinator], Tod
         # still arrives carrying the existing `due`. The API reads `due_at: null` as CLEAR and an
         # absent key as leave alone, so sending it unconditionally wipes the date on any task that
         # has none. Only send it when it actually differs.
-        was_due = _parse_due(current.get("due_at"), timezone_of(self.hass))
+        was_due = parse_due(current.get("due_at"), dt_util.get_default_time_zone())
         due_changed = item.due != was_due
 
         # One update can be two calls and the first may land before the second fails, so the
@@ -240,7 +253,7 @@ class ProgressCoveTodoListEntity(CoordinatorEntity[ProgressCoveCoordinator], Tod
                         uid, send, rerender, hold=needs_window(current),
                     )
                 elif not self.coordinator.pending.undo(uid):
-                    with surfaced("update that task"):
+                    with surfaced("update_failed"):
                         await self.coordinator.client.async_uncomplete(uid)
                 else:
                     self._apply()
@@ -252,23 +265,23 @@ class ProgressCoveTodoListEntity(CoordinatorEntity[ProgressCoveCoordinator], Tod
                 if new_name is not None:
                     changes["name"] = new_name
                 if due_changed:
-                    changes["due_at"] = due_for_api(item.due, timezone_of(self.hass))
-                with surfaced("update that task"):
+                    changes["due_at"] = due_for_api(item.due, dt_util.get_default_time_zone())
+                with surfaced("update_failed"):
                     await self.coordinator.client.async_update_task(uid, **changes)
         finally:
+            # Not async_request_refresh: in its cooldown a second write waits 10 s to show.
             await self.coordinator.async_refresh()
 
     async def async_delete_todo_items(self, uids: list[str]) -> None:
         # A later delete can fail after earlier ones are gone, so the refresh in `finally` shows
         # exactly what survived.
         try:
-            with surfaced("delete that task"):
+            with surfaced("delete_failed"):
                 for uid in uids:
                     await self.coordinator.client.async_delete(uid)
         finally:
+            # Not async_request_refresh: in its cooldown a second write waits 10 s to show.
             await self.coordinator.async_refresh()
-
-
 
 
 class ProgressCoveInboxEntity(ProgressCoveTodoListEntity):
@@ -279,12 +292,12 @@ class ProgressCoveInboxEntity(ProgressCoveTodoListEntity):
     first deciding which project milk belongs to. Sorting it out later is what the app is for.
     """
 
-    def __init__(self, coordinator: ProgressCoveCoordinator, entry_id: str,
-                 inbox: dict[str, Any]) -> None:
-        super().__init__(coordinator, entry_id, inbox)
-        # Not the path: the inbox sits under a structural root whose name is an implementation
-        # detail, and "Home > Unsorted > Unsorted" reads like a bug.
-        self._attr_name = "Inbox"
+    _attr_translation_key = "inbox"
+
+    def _name_after(self, project: dict[str, Any]) -> None:
+        """Named by its translation key, not the path: the inbox sits under a structural root
+        whose name is an implementation detail, and "Home > Unsorted > Unsorted" reads like a
+        bug."""
 
     async def async_create_todo_item(self, item: TodoItem) -> None:
         """Capture through the widget endpoint, which is idempotent on the id we send.
@@ -293,11 +306,10 @@ class ProgressCoveInboxEntity(ProgressCoveTodoListEntity):
         duplicate is the visible failure for a capture the user believes already worked.
         """
         try:
-            with surfaced("add that task"):
-                await self.coordinator.client.async_capture(
-                    item.summary or "", uuid.uuid4().hex
-                )
+            with surfaced("add_failed"):
+                await self.coordinator.client.async_capture(item.summary or "", uuid.uuid4().hex)
         finally:
+            # Not async_request_refresh: in its cooldown a second write waits 10 s to show.
             await self.coordinator.async_refresh()
 
 

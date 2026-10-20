@@ -2,13 +2,15 @@
 
 `todo.update_item` resolves its item against the entity's own items, which stops at a list's direct
 children. `complete` and `reopen` go deeper; `get_nested_items` reads one level below a list.
+`get_my_day_details` is the exception, aimed at the My Day entity for what its items cannot carry.
 """
 
 from __future__ import annotations
 
-import logging
+from typing import TYPE_CHECKING
 
-import voluptuous as vol
+from homeassistant.components.todo import DOMAIN as TODO_DOMAIN
+from homeassistant.config_entries import ConfigEntryState
 from homeassistant.core import (
     HomeAssistant,
     ServiceCall,
@@ -16,36 +18,44 @@ from homeassistant.core import (
     SupportsResponse,
 )
 from homeassistant.exceptions import ServiceValidationError
-from homeassistant.helpers import config_validation as cv
+from homeassistant.helpers import config_validation as cv, service
+import voluptuous as vol
 
-from .const import DOMAIN, STATUS_COMPLETED
-from .pending import complete
+from .const import ATTR_NODE_ID, DOMAIN, STATUS_COMPLETED
+from .helpers import refuse_if_read_only, repeats, surfaced, translated_error
+from .my_day import my_day_details
 from .names import display_name
-from .helpers import refuse_if_read_only, surfaced, repeats
+from .pending import complete
 
-_LOGGER = logging.getLogger(__name__)
+if TYPE_CHECKING:
+    from .coordinator import ProgressCoveConfigEntry, ProgressCoveCoordinator
 
 SERVICE_COMPLETE = "complete"
 SERVICE_REOPEN = "reopen"
 SERVICE_GET_NESTED_ITEMS = "get_nested_items"
-ATTR_NODE_ID = "node_id"
+SERVICE_GET_MY_DAY_DETAILS = "get_my_day_details"
 
 _SCHEMA = vol.Schema({vol.Required(ATTR_NODE_ID): cv.string})
 
 
-def _coordinator_for(hass: HomeAssistant, node_id: str):
-    """The entry that owns this node.
+def _coordinator_for(hass: HomeAssistant, node_id: str) -> ProgressCoveCoordinator:
+    """The loaded entry that owns this node.
 
     Searched rather than passed: a node id is globally unique, so the caller does not have to know
-    which entry it belongs to.
+    which entry it belongs to. Only a loaded entry is asked, because one that failed setup or is
+    unloading has no tree to answer from.
     """
-    for entry in hass.config_entries.async_entries(DOMAIN):
-        coordinator = getattr(entry, "runtime_data", None)
-        if coordinator and node_id in coordinator.data.by_id:
-            return coordinator
-    raise ServiceValidationError(
-        f"No ProgressCove task with id {node_id}. Copy it from a card or the node_id attribute."
-    )
+    loaded: list[ProgressCoveConfigEntry] = [
+        entry
+        for entry in hass.config_entries.async_entries(DOMAIN)
+        if entry.state is ConfigEntryState.LOADED
+    ]
+    if not loaded:
+        raise translated_error("not_loaded", ServiceValidationError)
+    for entry in loaded:
+        if node_id in entry.runtime_data.data.by_id:
+            return entry.runtime_data
+    raise translated_error("unknown_node", ServiceValidationError, node_id=node_id)
 
 
 async def _complete(call: ServiceCall) -> None:
@@ -70,12 +80,14 @@ async def _reopen(call: ServiceCall) -> None:
         # is for the rarer one left genuinely closed by an exhausted or malformed rule.
         return
     if repeats(node):
-        raise ServiceValidationError(
-            f"{display_name(node.get('name')) or 'That task'} repeats, so completing it moved "
-            "it to its next occurrence. Reopening it here would leave it on the wrong day."
+        raise translated_error(
+            "repeat_cannot_reopen",
+            ServiceValidationError,
+            name=display_name(node.get("name")) or node_id,
         )
-    with surfaced("reopen that task"):
+    with surfaced("reopen_failed"):
         await coordinator.client.async_uncomplete(node_id)
+    # Not async_request_refresh: in its cooldown a second write waits 10 s to show.
     await coordinator.async_refresh()
 
 
@@ -104,13 +116,17 @@ async def _get_nested_items(call: ServiceCall) -> ServiceResponse:
 
 
 def async_register(hass: HomeAssistant) -> None:
-    """Registered once for the integration: these take a node id rather than an entity, so a
-    second account does not want a second copy."""
-    if hass.services.has_service(DOMAIN, SERVICE_COMPLETE):
-        return
+    """Registered once for the integration, at setup rather than per entry: these take a node id
+    rather than an entity, so a second account does not want a second copy, and an action that
+    exists only while an entry is loaded breaks automations that name it while it is not."""
     hass.services.async_register(DOMAIN, SERVICE_COMPLETE, _complete, schema=_SCHEMA)
     hass.services.async_register(DOMAIN, SERVICE_REOPEN, _reopen, schema=_SCHEMA)
     hass.services.async_register(
         DOMAIN, SERVICE_GET_NESTED_ITEMS, _get_nested_items, schema=_SCHEMA,
+        supports_response=SupportsResponse.ONLY,
+    )
+    service.async_register_platform_entity_service(
+        hass, DOMAIN, SERVICE_GET_MY_DAY_DETAILS,
+        entity_domain=TODO_DOMAIN, func=my_day_details, schema=None,
         supports_response=SupportsResponse.ONLY,
     )

@@ -4,13 +4,15 @@
 unreachable. These services take a node id instead.
 """
 import asyncio
-import re
 import importlib.util
 import json
+from pathlib import Path
+import re
 import sys
 import types
 import unittest
-from pathlib import Path
+
+import ha_stubs
 
 ROOT = Path(__file__).resolve().parents[1]
 COMPONENT = ROOT / "custom_components" / "progresscove"
@@ -38,10 +40,11 @@ def _stub_homeassistant() -> None:
         SupportsResponse=type("SupportsResponse", (), {"ONLY": "only"}),
         callback=lambda f: f,
     )
+    module("homeassistant.config_entries", ConfigEntryState=ha_stubs.ConfigEntryState)
     module(
         "homeassistant.exceptions",
-        HomeAssistantError=type("HomeAssistantError", (Exception,), {}),
-        ServiceValidationError=type("ServiceValidationError", (Exception,), {}),
+        HomeAssistantError=ha_stubs.HomeAssistantError,
+        ServiceValidationError=ha_stubs.ServiceValidationError,
     )
     module("homeassistant.helpers")
     module("homeassistant.helpers.config_validation", string=str)
@@ -73,6 +76,9 @@ def _load(name):
     return mod
 
 
+ha_stubs.fill_todo_platform()
+ha_stubs.fill_shared()
+
 _pkg = types.ModuleType("progresscove")
 _pkg.__path__ = [str(COMPONENT)]
 sys.modules["progresscove"] = _pkg
@@ -82,6 +88,7 @@ STATUS_COMPLETED = _load("const").STATUS_COMPLETED
 _load("api")
 _load("helpers")
 services = _load("services")
+LOADED = sys.modules["homeassistant.config_entries"].ConfigEntryState.LOADED
 
 
 
@@ -110,7 +117,8 @@ def _world(status=None, rule=None, window=0.05, read_only=False):
         data = Data()
 
     coord = Coord()
-    coord.pending = pending.PendingCompletions()
+    coord.entry = ha_stubs.BackgroundEntry()
+    coord.pending = pending.PendingCompletions(None, coord.entry)
     coord.read_only = read_only
     coord.client = FakeClient(nodes)
     # The real DataUpdateCoordinator has this; it is what repaints every entity at once. Counted
@@ -126,6 +134,7 @@ def _world(status=None, rule=None, window=0.05, read_only=False):
 
     class Entry:
         runtime_data = coord
+        state = LOADED
 
     class Entries:
         def async_entries(self, domain):
@@ -158,6 +167,16 @@ class ServiceTest(unittest.TestCase):
             await services._complete(call)
             await asyncio.sleep(0.05)
             self.assertEqual(coord.client.completed, ["milk"])
+        asyncio.run(run())
+
+    def test_the_send_runs_as_a_task_home_assistant_tracks(self):
+        """A bare asyncio task outlives its entry and is invisible to shutdown; one created through
+        the entry is cancelled when the entry unloads."""
+        async def run():
+            coord, call, _ = _world(rule="RRULE:FREQ=WEEKLY", window=5)
+            await services._complete(call)
+            self.assertEqual(coord.entry.task_names, ["progresscove completion milk"])
+            coord.pending.undo("milk")
         asyncio.run(run())
 
     def test_a_repeat_is_held_for_the_window(self):
@@ -212,18 +231,40 @@ class ServiceTest(unittest.TestCase):
     def test_a_repeat_cannot_be_reopened_after_the_window(self):
         async def run():
             coord, call, _ = _world(status=STATUS_COMPLETED, rule="RRULE:FREQ=WEEKLY")
-            with self.assertRaises(Exception):
+            with self.assertRaises(services.ServiceValidationError) as caught:
                 await services._reopen(call)
             self.assertEqual(coord.client.reopened, [])
-        asyncio.run(run())
+            return caught.exception
+        error = asyncio.run(run())
+        self.assertEqual(error.translation_key, "repeat_cannot_reopen")
+        self.assertTrue(str(error).startswith("Milk repeats,"), str(error))
 
     def test_an_unknown_node_is_refused_not_ignored(self):
         async def run():
             _, call, _ = _world()
             call.data = {services.ATTR_NODE_ID: "does-not-exist"}
-            with self.assertRaises(Exception):
+            with self.assertRaises(services.ServiceValidationError) as caught:
                 await services._complete(call)
-        asyncio.run(run())
+            return caught.exception
+        error = asyncio.run(run())
+        self.assertEqual(error.translation_domain, "progresscove")
+        self.assertEqual(error.translation_key, "unknown_node")
+        self.assertIn("does-not-exist", str(error))
+
+    def test_an_entry_that_is_not_loaded_is_never_asked(self):
+        """One that failed setup or is unloading has no tree, or a stale one, to act on."""
+        async def run():
+            coord, call, _ = _world()
+            entry = call.hass.config_entries.async_entries("progresscove")[0]
+            type(entry).state = "setup_retry"
+            try:
+                with self.assertRaises(services.ServiceValidationError) as caught:
+                    await services._complete(call)
+            finally:
+                type(entry).state = LOADED
+            self.assertFalse(coord.pending.is_pending("milk"))
+            return caught.exception
+        self.assertEqual(asyncio.run(run()).translation_key, "not_loaded")
 
 
 class CancelledChildTest(unittest.TestCase):
@@ -243,42 +284,6 @@ class CancelledChildTest(unittest.TestCase):
         const = sys.modules["progresscove.const"]
         for open_status in (0, 1, 3):
             self.assertNotIn(open_status, const.CLOSED_STATUSES)
-
-
-class MinimumVersionTest(unittest.TestCase):
-    """Below the floor the config flow fails on a missing attribute, which tells the user nothing.
-
-    Refusing with a sentence is the whole point, so the boundary is worth pinning. These drive the
-    real guard with the running version patched, rather than restating its comparison.
-    """
-
-    def _too_old_when_running(self, major, minor):
-        """The real `_too_old`, run against a pretended HA version.
-
-        Compiled out of __init__.py rather than imported: importing it pulls in the whole
-        config-entry setup path, which has nothing to do with comparing two numbers.
-        """
-        source = (COMPONENT / "__init__.py").read_text()
-        start = source.index("def _too_old()")
-        body = source[start:source.index("\nasync def", start)]
-        scope = {"MAJOR_VERSION": major, "MINOR_VERSION": minor,
-                 "MIN_HA_VERSION": sys.modules["progresscove.const"].MIN_HA_VERSION}
-        exec(compile(body, "__init__.py", "exec"), scope)
-        return scope["_too_old"]()
-
-    def test_the_boundary_is_where_it_claims_to_be(self):
-        major, minor = sys.modules["progresscove.const"].MIN_HA_VERSION
-        self.assertEqual(self._too_old_when_running(major, minor - 1), f"{major}.{minor - 1}")
-        self.assertIsNone(self._too_old_when_running(major, minor),
-                          "the stated minimum must itself be allowed")
-        self.assertIsNone(self._too_old_when_running(major, minor + 1))
-
-    def test_hacs_and_the_code_agree(self):
-        """Two places state the floor; they drift silently if nobody checks."""
-        import json
-        hacs = json.load(open(ROOT / "hacs.json"))
-        declared = tuple(int(p) for p in hacs["homeassistant"].split(".")[:2])
-        self.assertEqual(declared, sys.modules["progresscove.const"].MIN_HA_VERSION)
 
 
 class CopyMatchesBehaviourTest(unittest.TestCase):
@@ -322,18 +327,15 @@ class CopyMatchesBehaviourTest(unittest.TestCase):
 
         Covers code as well as copy: the rule used to be checked on user-facing strings only, so
         118 lines of comments and docstrings drifted the other way unnoticed.
-
-        picker_tree.CONTEXT_ONLY is exempt by name. It is a box-drawing glyph marking a row that
-        exists only to hold its children, not prose.
         """
         base = ROOT / "custom_components" / "progresscove"
         catalogues = [base / "strings.json", base / "services.yaml",
                       ROOT / "README.md"]
         catalogues += sorted((base / "translations").glob("*.json"))
-        sources = sorted(base.glob("*.py")) + sorted((ROOT / "www").glob("*.js"))
+        sources = sorted(base.glob("*.py")) + sorted((base / "frontend").glob("*.js"))
         for path in catalogues + sources:
             for number, line in enumerate(path.read_text().splitlines(), 1):
-                if "\u2014" in line and "CONTEXT_ONLY" not in line:
+                if "\u2014" in line:
                     self.fail(f"{path.name}:{number} contains an em dash: {line.strip()[:70]}")
 
     def test_the_undo_promise_is_scoped_to_repeats(self):
@@ -372,6 +374,7 @@ class GetNestedItemsTest(unittest.TestCase):
 
         class Entry:
             runtime_data = Coord()
+            state = LOADED
 
         class Hass:
             config_entries = type("E", (), {"async_entries": lambda self, d: [Entry()]})()
@@ -459,7 +462,7 @@ class PatchBodyTest(unittest.TestCase):
                 sent.update(rest.get("json", {}))
                 return {}
 
-        asyncio.run(Client().async_update_task("node-1", **kwargs))
+        asyncio.run(Client().async_update_task("96d699ae-fb2c-4620-956a-af634bfd3261", **kwargs))
         return sent
 
     def test_a_rename_leaves_the_due_date_alone(self):

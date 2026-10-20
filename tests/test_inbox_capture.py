@@ -8,11 +8,15 @@ These reuse the stub harness from the repeat tests, since the entity under test 
 and the same Home Assistant surface.
 """
 import asyncio
+from datetime import date
+import enum
 import importlib.util
+from pathlib import Path
 import sys
 import types
 import unittest
-from pathlib import Path
+
+import ha_stubs
 
 ROOT = Path(__file__).resolve().parents[1]
 COMPONENT = ROOT / "custom_components" / "progresscove"
@@ -39,7 +43,7 @@ class _TodoItem:
         self.description = description
 
 
-class _TodoListEntityFeature:
+class _TodoListEntityFeature(enum.IntFlag):
     CREATE_TODO_ITEM = 1
     DELETE_TODO_ITEM = 2
     UPDATE_TODO_ITEM = 4
@@ -66,7 +70,7 @@ _module("homeassistant.components.todo", TodoItem=_TodoItem, TodoItemStatus=_Tod
 _module("homeassistant.config_entries", ConfigEntry=object)
 _module("homeassistant.core", HomeAssistant=object, callback=lambda f: f)
 _module("homeassistant.exceptions",
-        HomeAssistantError=type("HomeAssistantError", (Exception,), {}),
+        HomeAssistantError=ha_stubs.HomeAssistantError,
         ConfigEntryAuthFailed=type("ConfigEntryAuthFailed", (Exception,), {}))
 _module("homeassistant.helpers")
 _module("homeassistant.helpers.aiohttp_client", async_get_clientsession=lambda hass: None)
@@ -78,9 +82,11 @@ _module("homeassistant.helpers.update_coordinator",
         }),
         DataUpdateCoordinator=type(
             "DataUpdateCoordinator", (), {"__class_getitem__": classmethod(lambda c, i: c)}),
-        UpdateFailed=type("UpdateFailed", (Exception,), {}))
+        UpdateFailed=ha_stubs.UpdateFailed)
 _module("aiohttp", ClientSession=object, ClientResponse=object,
         ClientError=type("ClientError", (Exception,), {}))
+
+ha_stubs.fill_shared()
 
 _pkg = types.ModuleType("progresscove")
 _pkg.__path__ = [str(COMPONENT)]
@@ -127,7 +133,7 @@ def _entity(nodes=None):
 
     class Coordinator:
         data = tree
-        pending = _pending.PendingCompletions()
+        pending = _pending.PendingCompletions(None, ha_stubs.BackgroundEntry())
         inbox_id = INBOX_ID
         read_only = False
 
@@ -182,7 +188,37 @@ class CaptureTest(unittest.TestCase):
         """Not the path: the inbox hangs off a structural root whose name is an implementation
         detail, and repeating it reads like a bug."""
         entity, _ = _entity()
-        self.assertEqual(entity._attr_name, "Inbox")
+        self.assertEqual(entity._attr_translation_key, "inbox")
+        self.assertFalse(hasattr(entity, "_attr_name"), "a name would override the translation")
+
+
+class ListAddTest(unittest.TestCase):
+    """Adding to a list the user picked creates a task one tier below it."""
+
+    def _list(self):
+        project = {"id": "project-1", "name": "Garden", "parent_id": "root-1", "depth": 2}
+        inbox, client = _entity([ROOT_NODE, INBOX, project])
+        entity = _todo.ProgressCoveTodoListEntity.__new__(_todo.ProgressCoveTodoListEntity)
+        entity.coordinator = inbox.coordinator
+        entity._project_id = project["id"]
+        return entity, client
+
+    def test_typed_text_is_the_new_task_name(self):
+        async def run():
+            entity, client = self._list()
+            await entity.async_create_todo_item(_TodoItem(summary="water plants every Monday"))
+            self.assertEqual(client.creates, [("project-1", "water plants every Monday", None, 3)])
+        asyncio.run(run())
+
+    def test_an_item_with_its_own_due_date_keeps_it(self):
+        async def run():
+            entity, client = self._list()
+            await entity.async_create_todo_item(
+                _TodoItem(summary="water plants friday", due=date(2026, 10, 16)))
+            self.assertEqual(len(client.creates), 1)
+            self.assertEqual(client.creates[0][:2], ("project-1", "water plants friday"))
+            self.assertEqual(client.creates[0][3], 3)
+        asyncio.run(run())
 
 
 class SetupTest(unittest.TestCase):

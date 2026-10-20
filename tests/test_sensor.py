@@ -4,10 +4,12 @@ A state trigger compares one value to a fixed one, so a percentage answers direc
 needed a template condition comparing two counts.
 """
 import importlib.util
+from pathlib import Path
 import sys
 import types
 import unittest
-from pathlib import Path
+
+import ha_stubs
 
 ROOT = Path(__file__).resolve().parents[1]
 COMPONENT = ROOT / "custom_components" / "progresscove"
@@ -53,11 +55,13 @@ _module(
     DataUpdateCoordinator=type(
         "DataUpdateCoordinator", (), {"__class_getitem__": classmethod(lambda c, i: c)}
     ),
-    UpdateFailed=type("UpdateFailed", (Exception,), {}),
+    UpdateFailed=ha_stubs.UpdateFailed,
 )
 _module("homeassistant.exceptions",
-        HomeAssistantError=type("HomeAssistantError", (Exception,), {}),
+        HomeAssistantError=ha_stubs.HomeAssistantError,
         ConfigEntryAuthFailed=type("ConfigEntryAuthFailed", (Exception,), {}))
+
+ha_stubs.fill_shared()
 
 _pkg = types.ModuleType("progresscove")
 _pkg.__path__ = [str(COMPONENT)]
@@ -110,16 +114,31 @@ class ProgressSensorTest(unittest.TestCase):
         same statement as "barely begun"."""
         self.assertIsNone(_sensor([]).native_value)
 
-    def test_the_summary_reads_the_way_the_card_does(self):
-        self.assertEqual(_sensor([True, False, False]).extra_state_attributes["summary"],
-                         "1 of 3 done")
+    def test_the_counts_are_structured_values_not_sentences(self):
+        """An English sentence in an attribute cannot follow the house's language; a template or
+        card words the counts itself."""
+        attributes = _sensor([True, False, False]).extra_state_attributes
+        self.assertEqual((attributes["done"], attributes["total"]), (1, 3))
+        self.assertNotIn("summary", attributes)
 
-    def test_an_empty_node_says_so_rather_than_zero_of_zero(self):
-        self.assertEqual(_sensor([]).extra_state_attributes["summary"], "nothing here yet")
+    def test_the_unit_is_home_assistants_percentage(self):
+        self.assertEqual(ProgressCoveProgressSensor._attr_native_unit_of_measurement,
+                         sys.modules["homeassistant.const"].PERCENTAGE)
 
+    def test_a_failing_poll_makes_it_unavailable(self):
+        ha_stubs.give_coordinator_availability(self, ProgressCoveProgressSensor)
+        sensor = _sensor([True, False])
+        sensor.coordinator.last_update_success = False
+        self.assertFalse(sensor.available)
+        sensor.coordinator.last_update_success = True
+        self.assertTrue(sensor.available)
 
-if __name__ == "__main__":
-    unittest.main()
+    def test_a_node_gone_from_the_account_makes_it_unavailable(self):
+        ha_stubs.give_coordinator_availability(self, ProgressCoveProgressSensor)
+        sensor = _sensor([True])
+        sensor.coordinator.last_update_success = True
+        sensor._node_id = "gone"
+        self.assertFalse(sensor.available)
 
 
 class TreePathTest(unittest.TestCase):
@@ -144,3 +163,7 @@ class TreePathTest(unittest.TestCase):
 
     def test_an_unknown_id_is_empty_not_an_error(self):
         self.assertEqual(Tree.from_nodes([]).path_of("nope"), "")
+
+
+if __name__ == "__main__":
+    unittest.main()

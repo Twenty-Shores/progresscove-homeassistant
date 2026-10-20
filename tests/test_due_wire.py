@@ -11,7 +11,10 @@ from pathlib import Path
 import sys
 import types
 import unittest
+from unittest import mock
 from zoneinfo import ZoneInfo
+
+import ha_stubs
 
 ROOT = Path(__file__).resolve().parents[1]
 COMPONENT = ROOT / "custom_components" / "progresscove"
@@ -30,10 +33,12 @@ def _module(name, **attrs):
 _module("homeassistant")
 _module("homeassistant.core", HomeAssistant=object, callback=lambda f: f)
 _module("homeassistant.exceptions",
-        HomeAssistantError=type("HomeAssistantError", (Exception,), {}),
+        HomeAssistantError=ha_stubs.HomeAssistantError,
         ConfigEntryAuthFailed=type("ConfigEntryAuthFailed", (Exception,), {}))
 _module("aiohttp", ClientSession=object, ClientResponse=object,
         ClientError=type("ClientError", (Exception,), {}))
+
+ha_stubs.fill_shared()
 
 if "progresscove" not in sys.modules:
     _pkg = types.ModuleType("progresscove")
@@ -75,22 +80,33 @@ class DueForApiTest(unittest.TestCase):
         self.assertIsNone(helpers.due_for_api(None, NEW_YORK))
 
     def test_every_due_sent_has_an_offset(self):
-        for due in (date(2026, 1, 1), datetime(2026, 1, 1, 8), datetime(2026, 1, 1, 8, tzinfo=NEW_YORK)):
+        dues = (date(2026, 1, 1), datetime(2026, 1, 1, 8), datetime(2026, 1, 1, 8, tzinfo=NEW_YORK))
+        for due in dues:
             self.assertIsNotNone(datetime.fromisoformat(helpers.due_for_api(due, NEW_YORK)).tzinfo)
+
+
+class HouseZoneTest(unittest.TestCase):
+    def test_the_house_zone_is_the_one_home_assistant_holds(self):
+        """Building a zone reads the zone files, which blocks the event loop."""
+        today_in_new_york = datetime.now(NEW_YORK).date().isoformat()
+        node = {"id": "n", "due_at": f"{today_in_new_york}T12:00:00-04:00"}
+        with mock.patch.object(helpers.dt_util, "get_default_time_zone", lambda: NEW_YORK), \
+                mock.patch.object(helpers, "ZoneInfo", side_effect=AssertionError("built a zone")):
+            self.assertTrue(helpers.can_complete(node))
 
 
 class ParseDueTest(unittest.TestCase):
     def test_a_due_day_comes_back_as_that_day(self):
         """Read back in the house, not in UTC, where it would already be the next day."""
         stored = "2026-10-08T03:59:59.999000+00:00"
-        self.assertEqual(helpers._parse_due(stored, NEW_YORK), date(2026, 10, 7))
+        self.assertEqual(helpers.parse_due(stored, NEW_YORK), date(2026, 10, 7))
 
     def test_a_due_day_round_trips(self):
         sent = helpers.due_for_api(date(2026, 10, 7), NEW_YORK)
-        self.assertEqual(helpers._parse_due(sent, NEW_YORK), date(2026, 10, 7))
+        self.assertEqual(helpers.parse_due(sent, NEW_YORK), date(2026, 10, 7))
 
     def test_a_time_of_day_stays_an_instant(self):
-        parsed = helpers._parse_due("2026-10-07T13:30:00+00:00", NEW_YORK)
+        parsed = helpers.parse_due("2026-10-07T13:30:00+00:00", NEW_YORK)
         self.assertEqual(parsed, datetime(2026, 10, 7, 13, 30, tzinfo=timezone.utc))
 
 

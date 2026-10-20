@@ -5,11 +5,14 @@ cover the part this side owns: noticing the scope on every response, never mista
 for a dead token, and not offering controls that cannot work.
 """
 import asyncio
+import enum
 import importlib.util
+from pathlib import Path
 import sys
 import types
 import unittest
-from pathlib import Path
+
+import ha_stubs
 
 ROOT = Path(__file__).resolve().parents[1]
 COMPONENT = ROOT / "custom_components" / "progresscove"
@@ -35,7 +38,7 @@ class _TodoItem:
         self.uid, self.summary, self.status, self.due = uid, summary, status, due
 
 
-class _TodoListEntityFeature:
+class _TodoListEntityFeature(enum.IntFlag):
     CREATE_TODO_ITEM = 1
     DELETE_TODO_ITEM = 2
     UPDATE_TODO_ITEM = 4
@@ -70,23 +73,27 @@ _module("homeassistant.components.switch", SwitchEntity=object)
 _module("homeassistant.config_entries", ConfigEntry=object)
 _module("homeassistant.core", HomeAssistant=object, callback=lambda f: f)
 _module("homeassistant.exceptions",
-        HomeAssistantError=type("HomeAssistantError", (Exception,), {}),
+        HomeAssistantError=ha_stubs.HomeAssistantError,
         ConfigEntryAuthFailed=type("ConfigEntryAuthFailed", (Exception,), {}))
 _module("homeassistant.helpers")
 _module("homeassistant.helpers.entity_platform", AddConfigEntryEntitiesCallback=object)
-_module("homeassistant.helpers.issue_registry", async_create_issue=None, async_delete_issue=None,
+_module("homeassistant.helpers.issue_registry",
+        async_create_issue=lambda *args, **kwargs: None,
+        async_delete_issue=lambda *args, **kwargs: None,
         IssueSeverity=_IssueSeverity)
 _updates = _module(
     "homeassistant.helpers.update_coordinator",
     CoordinatorEntity=_CoordinatorEntity,
     DataUpdateCoordinator=type(
         "DataUpdateCoordinator", (), {"__class_getitem__": classmethod(lambda c, i: c)}),
-    UpdateFailed=type("UpdateFailed", (Exception,), {}),
+    UpdateFailed=ha_stubs.UpdateFailed,
 )
 if _updates.CoordinatorEntity.__init__ is object.__init__:
     _updates.CoordinatorEntity = _CoordinatorEntity
 _module("aiohttp", ClientError=type("ClientError", (Exception,), {}),
         ClientSession=object, ClientResponse=object)
+
+ha_stubs.fill_shared()
 
 _pkg = types.ModuleType("progresscove")
 _pkg.__path__ = [str(COMPONENT)]
@@ -113,18 +120,22 @@ button = _load("button")
 switch = _load("switch")
 
 HomeAssistantError = helpers.HomeAssistantError
+ServiceValidationError = helpers.ServiceValidationError
 UpdateFailed = coordinator_module.UpdateFailed
 ConfigEntryAuthFailed = coordinator_module.ConfigEntryAuthFailed
 Tree = coordinator_module.Tree
 
 
 class _Response:
-    def __init__(self, status, headers=None, body=None):
+    def __init__(self, status, headers=None, body=None, body_error=None):
         self.status = status
         self.headers = headers or {}
         self._body = body
+        self._body_error = body_error
 
     async def json(self):
+        if self._body_error is not None:
+            raise self._body_error
         return self._body
 
     def raise_for_status(self):
@@ -141,9 +152,14 @@ class _Response:
 class _Session:
     def __init__(self, *responses):
         self._responses = list(responses)
+        self.timeouts = []
 
     def request(self, method, url, headers=None, **kwargs):
-        return self._responses.pop(0)
+        self.timeouts.append(kwargs.get("timeout"))
+        answer = self._responses.pop(0)
+        if isinstance(answer, BaseException):
+            raise answer
+        return answer
 
 
 def _client(*responses):
@@ -192,9 +208,38 @@ class ScopeHeaderTest(unittest.TestCase):
         self.assertEqual(client.token_scope, const.SCOPE_READ)
 
 
+class TransportFailureTest(unittest.TestCase):
+    """Every way a request can fail is a ProgressCoveError, so it reaches the person.
+
+    Config flow shows cannot_connect for it, setup retries on it and a write says it did not go
+    through. A bare timeout or decode error escaped all three and surfaced as an unexpected crash.
+    """
+
+    def _failure(self, answer):
+        with self.assertRaises(api.ProgressCoveError) as caught:
+            _get(_client(answer))
+        return caught.exception
+
+    def test_a_timeout_is_a_failure_to_connect(self):
+        error = self._failure(TimeoutError())
+        self.assertIn("timed out", str(error))
+
+    def test_a_body_that_is_not_json_is_a_failure(self):
+        self._failure(_Response(200, body_error=ValueError("Expecting value")))
+
+    def test_a_transport_error_is_a_failure(self):
+        self._failure(sys.modules["aiohttp"].ClientError("connection reset"))
+
+    def test_every_request_carries_a_bounded_timeout(self):
+        session = _Session(_Response(200, body={}))
+        asyncio.run(api.ProgressCoveClient(session, "https://x", "pat_x").async_check_credentials())
+        self.assertIs(session.timeouts[0], api.REQUEST_TIMEOUT)
+        self.assertEqual(api.REQUEST_TIMEOUT.total, 30)
+
+
 class RefusedWriteTest(unittest.TestCase):
-    def _refused(self, headers):
-        client = _client(_Response(403, headers))
+    def _refused(self, headers, body=None, body_error=None):
+        client = _client(_Response(403, headers, body, body_error))
         with self.assertRaises(api.ProgressCoveError) as caught:
             _get(client)
         return client, caught.exception
@@ -220,19 +265,79 @@ class RefusedWriteTest(unittest.TestCase):
         _, error = self._refused({})
         self.assertIsInstance(error, api.ProgressCoveAuthError)
 
+    def test_a_lapsed_subscription_is_its_own_error(self):
+        """The body the server sends for it, in production today and on main: a code, no header."""
+        _, error = self._refused({}, {"detail": "An active subscription is required.",
+                                      "code": "subscription_required"})
+        self.assertIsInstance(error, api.ProgressCoveSubscriptionInactive)
+        self.assertNotIsInstance(error, api.ProgressCoveAuthError)
+
+    def test_another_code_in_the_body_is_still_an_auth_failure(self):
+        _, error = self._refused({}, {"detail": "Forbidden.", "code": "insufficient_scope"})
+        self.assertIsInstance(error, api.ProgressCoveAuthError)
+
+    def test_a_403_whose_body_is_not_json_is_still_an_auth_failure(self):
+        _, error = self._refused({}, body_error=ValueError("Expecting value"))
+        self.assertIsInstance(error, api.ProgressCoveAuthError)
+
+    def test_a_lapsed_subscription_tells_the_person_why_a_write_failed(self):
+        with self.assertRaises(HomeAssistantError) as caught:
+            with helpers.surfaced("complete_failed"):
+                raise api.ProgressCoveSubscriptionInactive("403")
+        self.assertEqual(caught.exception.translation_key, "subscription_inactive")
+        self.assertIn("Settings → Sunrise", str(caught.exception))
+
     def test_another_error_code_on_a_403_is_still_an_auth_failure(self):
         _, error = self._refused({const.ERROR_CODE_HEADER: "subscription_inactive"})
         self.assertIsInstance(error, api.ProgressCoveAuthError)
 
     def test_a_person_is_shown_the_message_in_full(self):
         with self.assertRaises(HomeAssistantError) as caught:
-            with helpers.surfaced("complete that task"):
+            with helpers.surfaced("complete_failed"):
                 raise api.ProgressCoveReadOnly()
+        self.assertEqual(caught.exception.translation_key, "read_only")
         self.assertEqual(str(caught.exception), const.READ_ONLY_MESSAGE)
+
+    def test_a_refusal_is_a_validation_error_and_a_failure_is_not(self):
+        """Home Assistant shows a ServiceValidationError as the person's to fix and does not log
+        it as a fault; a server or network failure is a fault and must stay one."""
+        refusals = (api.ProgressCoveReadOnly(), api.ProgressCoveRejected("name: too long"))
+        for failure in refusals:
+            with self.subTest(type(failure).__name__):
+                with self.assertRaises(ServiceValidationError):
+                    with helpers.surfaced("complete_failed"):
+                        raise failure
+        with self.assertRaises(HomeAssistantError) as caught:
+            with helpers.surfaced("complete_failed"):
+                raise api.ProgressCoveError("GET /nodes timed out")
+        self.assertNotIsInstance(caught.exception, ServiceValidationError)
+
+
+class SurfacedTest(unittest.TestCase):
+    """What a person reads when a write fails, in their own language."""
+
+    def _raised(self, failure):
+        with self.assertRaises(HomeAssistantError) as caught:
+            with helpers.surfaced("reopen_failed"):
+                raise failure
+        return caught.exception
+
+    def test_the_servers_own_reason_reaches_the_person(self):
+        error = self._raised(api.ProgressCoveRejected("name: too long"))
+        self.assertEqual(error.translation_domain, "progresscove")
+        self.assertEqual(error.translation_key, "rejected")
+        self.assertEqual(error.translation_placeholders, {"reason": "name: too long"})
+        self.assertIn("name: too long", str(error))
+
+    def test_an_unclassified_failure_still_says_what_did_not_happen(self):
+        error = self._raised(api.ProgressCoveError("GET /nodes timed out"))
+        self.assertEqual(error.translation_key, "reopen_failed")
+        self.assertEqual(str(error), "ProgressCove could not reopen that task.")
 
 
 class _Entry:
     entry_id = "entry-1"
+    unique_id = "0b9d7a52-55a4-4c3e-9d0f-2f3c1c9e6a11"
 
     def __init__(self, **data):
         self.data = dict(data)
@@ -287,6 +392,9 @@ def _coordinator(scope, stored=None, error=None):
     coord.hass = _Hass()
     coord.config_entry = _Entry(**({const.CONF_TOKEN_SCOPE: stored} if stored else {}))
     coord.read_only = stored == const.SCOPE_READ
+    coord._nodes = coord._my_day = None
+    coord._prune_owed = False
+    coord.prune_verdicts = {}
     return coord, registry
 
 
@@ -367,6 +475,7 @@ def _world(read_only, nodes=None):
 
     coord = Coord()
     coord.read_only = read_only
+    coord.account_id = "0b9d7a52-55a4-4c3e-9d0f-2f3c1c9e6a11"
     return coord
 
 
@@ -406,6 +515,63 @@ class EntityFeatureTest(unittest.TestCase):
         self.assertTrue(entity.extra_state_attributes[const.ATTR_READ_ONLY])
 
 
+class MyDayRefusalTest(unittest.TestCase):
+    def test_unticking_a_closed_repeat_is_a_refusal_not_a_fault(self):
+        node = {"id": "bins", "name": "Bins", "depth": 3, "parent_id": None,
+                "status": const.STATUS_COMPLETED, "recurrence_rule": "FREQ=WEEKLY"}
+        coord = _world(False, [node])
+        coord.pending.undo = lambda node_id: False
+        entity = my_day.ProgressCoveMyDayEntity(coord, "e")
+        unticked = _TodoItem(uid="bins", status=_TodoItemStatus.NEEDS_ACTION)
+        with self.assertRaises(ServiceValidationError) as caught:
+            asyncio.run(entity.async_update_todo_item(unticked))
+        self.assertEqual(caught.exception.translation_key, "repeat_cannot_reopen")
+
+
+class MyDayDetailsTest(unittest.TestCase):
+    """Today's items are not attributes: those are written into the state machine on every change
+    and sent to every browser connected to Home Assistant. The card asks for them instead."""
+
+    NODES = [
+        {"id": "home", "name": "Home", "depth": 1, "parent_id": None},
+        {"id": "bins", "name": "Bins", "depth": 2, "parent_id": "home", "icon": "🗑️"},
+    ]
+
+    def _entity(self, my_day_items):
+        coord = _world(False, self.NODES)
+        coord.data.my_day = my_day_items
+        return my_day.ProgressCoveMyDayEntity(coord, "e")
+
+    def test_the_attributes_carry_only_what_a_card_needs_to_draw_itself(self):
+        entity = self._entity([{"id": "bins", "name": "Bins", "section": "due"}])
+        self.assertEqual(entity.extra_state_attributes, {const.ATTR_READ_ONLY: False})
+
+    def test_details_give_what_a_todo_item_cannot_carry_in_the_servers_order(self):
+        entity = self._entity([
+            {"id": "bins", "name": "Bins", "section": "due", "timeUtc": "2026-10-19T07:00:00Z"},
+            {"id": "home", "name": "Home", "section": "ongoing"},
+            {"name": "no id, so no row"},
+        ])
+        self.assertEqual(entity.details(), {"items": [
+            {"uid": "bins", "section": "due", "time_utc": "2026-10-19T07:00:00Z",
+             "path": "Home › Bins", "emoji": "🗑️"},
+            {"uid": "home", "section": "ongoing", "time_utc": None, "path": "Home", "emoji": None},
+        ]})
+
+    def test_the_action_answers_for_my_day(self):
+        entity = self._entity([{"id": "bins", "section": "due"}])
+        self.assertEqual(my_day.my_day_details(entity, None), entity.details())
+
+    def test_the_action_refuses_any_other_list_by_name(self):
+        coord = _world(False)
+        other = todo.ProgressCoveTodoListEntity(coord, "entry", coord.data.by_id["list"])
+        other.entity_id = "todo.progresscove_shopping"
+        with self.assertRaises(ServiceValidationError) as caught:
+            my_day.my_day_details(other, None)
+        self.assertEqual(caught.exception.translation_key, "not_my_day")
+        self.assertIn("todo.progresscove_shopping", str(caught.exception))
+
+
 class PlatformSetupTest(unittest.TestCase):
     def _added(self, platform, subentry_type, read_only):
         coord = _world(read_only, [{"id": "task", "name": "Bins", "depth": 3, "parent_id": None}])
@@ -436,8 +602,8 @@ class PlatformSetupTest(unittest.TestCase):
 class CompleteRefusalTest(unittest.TestCase):
     def test_completing_is_refused_before_anything_is_scheduled(self):
         coord = _world(True)
-        coord.pending = pending.PendingCompletions()
-        with self.assertRaises(HomeAssistantError) as caught:
+        coord.pending = pending.PendingCompletions(None, ha_stubs.BackgroundEntry())
+        with self.assertRaises(ServiceValidationError) as caught:
             pending.complete(coord, "list", lambda: None)
         self.assertEqual(str(caught.exception), const.READ_ONLY_MESSAGE)
         self.assertFalse(coord.pending.is_pending("list"))

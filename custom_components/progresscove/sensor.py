@@ -12,30 +12,31 @@ from __future__ import annotations
 from typing import Any
 
 from homeassistant.components.sensor import SensorEntity, SensorStateClass
-from homeassistant.config_entries import ConfigEntry
+from homeassistant.const import PERCENTAGE
 from homeassistant.core import HomeAssistant, callback
 from homeassistant.helpers.entity_platform import AddConfigEntryEntitiesCallback
 from homeassistant.helpers.update_coordinator import CoordinatorEntity
 
-from .const import STATUS_COMPLETED
-from .coordinator import ProgressCoveCoordinator
+from .const import ATTR_NODE_ID, CONF_NODE_ID, STATUS_COMPLETED, SUBENTRY_SENSOR
+from .coordinator import ProgressCoveConfigEntry, ProgressCoveCoordinator
+from .device import account_device
 from .names import display_name
 
 
 async def async_setup_entry(
     hass: HomeAssistant,
-    entry: ConfigEntry,
+    entry: ProgressCoveConfigEntry,
     async_add_entities: AddConfigEntryEntitiesCallback,
 ) -> None:
-    coordinator: ProgressCoveCoordinator = entry.runtime_data
+    coordinator = entry.runtime_data
     for subentry_id, subentry in entry.subentries.items():
-        if subentry.subentry_type != "sensor":
+        if subentry.subentry_type != SUBENTRY_SENSOR:
             continue
-        node_id = subentry.data.get("node_id")
+        node_id = subentry.data.get(CONF_NODE_ID)
         if node_id not in coordinator.data.by_id:
             continue
         async_add_entities(
-            [ProgressCoveProgressSensor(coordinator, entry.entry_id, node_id)],
+            [ProgressCoveProgressSensor(coordinator, coordinator.account_id, node_id)],
             config_subentry_id=subentry_id,
         )
 
@@ -46,22 +47,24 @@ class ProgressCoveProgressSensor(
     """How far through its children a node is, as a percentage."""
 
     _attr_has_entity_name = True
-    _attr_native_unit_of_measurement = "%"
+    # The name when the node has none to show; a named node overrides it with its own.
+    _attr_translation_key = "progress"
+    _attr_native_unit_of_measurement = PERCENTAGE
     _attr_state_class = SensorStateClass.MEASUREMENT
-    _attr_icon = "mdi:progress-check"
+    _unrecorded_attributes = frozenset({ATTR_NODE_ID, "path"})
 
     def __init__(
         self,
         coordinator: ProgressCoveCoordinator,
-        entry_id: str,
+        account_id: str,
         node_id: str,
     ) -> None:
         super().__init__(coordinator)
         self._node_id = node_id
-        self._attr_unique_id = f"{entry_id}-progress-{node_id}"
-        self._attr_name = display_name(
-            coordinator.data.by_id.get(node_id, {}).get("name")
-        ) or "Progress"
+        self._attr_unique_id = f"{account_id}-progress-{node_id}"
+        self._attr_device_info = account_device(account_id)
+        if name := display_name(coordinator.data.by_id.get(node_id, {}).get("name")):
+            self._attr_name = name
 
     @property
     def _children(self) -> list[dict[str, Any]]:
@@ -69,8 +72,8 @@ class ProgressCoveProgressSensor(
 
     @property
     def available(self) -> bool:
-        """False only when the node is gone from the account, deleted in the app."""
-        return bool(self.coordinator.data.by_id.get(self._node_id))
+        """False while the poll is failing, and when the node is gone from the account."""
+        return super().available and bool(self.coordinator.data.by_id.get(self._node_id))
 
     @property
     def native_value(self) -> int | None:
@@ -89,17 +92,15 @@ class ProgressCoveProgressSensor(
         children = self._children
         done = sum(1 for c in children if c.get("status") == STATUS_COMPLETED)
         return {
-            "node_id": self._node_id,
+            ATTR_NODE_ID: self._node_id,
             "path": self.coordinator.data.path_of(self._node_id),
             "done": done,
             "total": len(children),
-            # Ready to drop into a notification body.
-            "summary": f"{done} of {len(children)} done" if children else "nothing here yet",
         }
 
     @callback
     def _handle_coordinator_update(self) -> None:
-        node = self.coordinator.data.by_id.get(self._node_id)
-        if node:
-            self._attr_name = display_name(node.get("name")) or self._attr_name
+        node = self.coordinator.data.by_id.get(self._node_id, {})
+        if name := display_name(node.get("name")):
+            self._attr_name = name
         super()._handle_coordinator_update()

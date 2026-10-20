@@ -3,13 +3,13 @@
     "step": {
       "user": {
         "title": "ProgressCove'a bağlan",
-        "description": "ProgressCove uygulamasında {tokens_url} altından bir API anahtarı oluşturun ve buraya yapıştırın.",
+        "description": "ProgressCove uygulamasında Ayarlar → Gelişmiş → API anahtarları altından bir API anahtarı oluşturun ve buraya yapıştırın.",
         "data": {
-          "base_url": "Sunucu",
+          "url": "Sunucu",
           "token": "API anahtarı"
         },
         "data_description": {
-          "base_url": "ProgressCove'un kendi sunucuları için olduğu gibi bırakın; kendi sunucunuzda barındırıyorsanız adresini girin.",
+          "url": "ProgressCove'un kendi sunucuları için olduğu gibi bırakın; kendi sunucunuzda barındırıyorsanız adresini girin.",
           "token": "pat_ ile başlar. Yalnızca oluşturulduğu anda bir kez gösterilir."
         }
       },
@@ -17,21 +17,21 @@
         "title": "Bu kurulumu yetkilendirin",
         "description": "Uygulamada bu kodu girin: **{code}**\n\nSiz girene kadar anahtar hiçbir şeye erişemez."
       },
-      "projects": {
+      "lists": {
         "title": "Listelerinizi seçin",
-        "description": "Her düğüm bir liste olabilir. Doğrudan alt öğeleri listenin maddeleri olur. Halihazırda içinde bir şey olanlar sizin için işaretlendi.",
+        "description": "Her düğüm bir liste olabilir. Doğrudan alt öğeleri listenin maddeleri olur. Halihazırda içinde bir şey olanlar sizin için işaretlendi. Her liste entegrasyon sayfasında kendi satırını alır. Daha sonra oradaki \"Listeleri yönet\" ile değiştirebilirsiniz.",
         "data": {
-          "projects": "Listeler"
+          "lists": "Listeler"
         },
         "data_description": {
-          "projects": "Her biri bir yapılacaklar listesi olur. Doğrudan alt öğeleri maddeleri olur."
+          "lists": "Her biri bir yapılacaklar listesi olur. Doğrudan alt öğeleri maddeleri olur."
         }
       },
       "reconfigure": {
         "title": "Sunucuyu veya anahtarı değiştir",
         "description": "Bu Home Assistant'ın ProgressCove'a ulaştığı adres ve isteğe bağlı olarak yeni bir anahtar. Mevcut anahtarı korumak için anahtar alanını boş bırakın. Yeni anahtar, ilki gibi eşleştirilir.",
         "data": {
-          "base_url": "Sunucu",
+          "url": "Sunucu",
           "token": "Yeni API anahtarı (isteğe bağlı)"
         }
       },
@@ -58,7 +58,10 @@
     "abort": {
       "already_configured": "Bu hesap zaten kurulu.",
       "reauth_successful": "Yeniden bağlanıldı.",
-      "reconfigure_successful": "Kaydedildi."
+      "reconfigure_successful": "Kaydedildi.",
+      "cannot_connect": "Sunucuya ulaşılamadı. Adresi kontrol edip tekrar deneyin.",
+      "already_in_progress": "Bu hesabın kurulumu zaten sürüyor.",
+      "wrong_account": "Bu anahtar başka bir ProgressCove hesabına ait. Hesap değiştirmek için entegrasyonu kaldırıp yeniden ekleyin."
     },
     "error": {
       "invalid_auth": "ProgressCove bu anahtarı kabul etmedi.",
@@ -66,7 +69,9 @@
       "not_paired_yet": "Henüz eşleştirilmedi. Kodu ProgressCove'a girin ve tekrar deneyin.",
       "no_projects": "Bu hesapta gösterilecek bir şey yok.",
       "invalid_url": "Bu bir web adresine benzemiyor. https:// ile başlamalı",
-      "different_account": "Bu anahtar farklı bir hesaba ait. Hesap değiştirmek için entegrasyonu kaldırıp yeniden ekleyin."
+      "unknown": "Beklenmeyen bir şey ters gitti. Tekrar deneyin; sürerse Home Assistant günlüğüne bakın.",
+      "not_selectable": "Bu satırlardan biri liste olamaz. Başka birini seçin.",
+      "subscription_inactive": "Bu hesabın ProgressCove aboneliği etkin değil. Uygulamada Ayarlar → Sunrise altından yenileyin, sonra tekrar deneyin."
     }
   },
   "options": {
@@ -77,7 +82,6 @@
           "min_depth": "Listeler şu katmandan gelebilir",
           "max_depth": "…şu katmana kadar",
           "node_sort": "Görevleri şöyle göster",
-          "scan_minutes": "Kontroller arası dakika",
           "auto_prune": "Görevi silindiğinde varlıkları kaldır",
           "complete_early": "Bitiş tarihinden önce tamamlamaya izin ver"
         },
@@ -85,43 +89,64 @@
           "min_depth": "Bir listenin gelebileceği en üst seviye.",
           "max_depth": "En derini. Yalnızca tek bir katmandan seçmek için ikisini aynı yapın.",
           "node_sort": "Görev adı önce yazması daha kolay; tam yol proje proje gezmek için daha uygun.",
-          "scan_minutes": "Başka yerlerde yapılan değişikliklerin ne sıklıkla aranacağı: uygulamada, web'de, telefonunuzda. Home Assistant üzerinden yaptıklarınız anında gönderilir, bunu beklemez.",
-          "auto_prune": "Önce sunucuya sorar ve yalnızca görevin gittiği doğrulandığında düğmeyi, anahtarı veya sensörü kaldırır. Kapatırsanız kaldırılmaz, yalnızca bildirilir.",
+          "auto_prune": "Kapalı: sunucu bir görevin silindiğini doğruladığında, Onarımlar bölümü o görevin listesini, düğmesini, anahtarını veya sensörünü tek adımda kaldırmayı önerir. Açık: sunucu doğruladığında sormadan kaldırılırlar.",
           "complete_early": "Kapalı: tarihi gelmemiş bir görev reddedilir, çünkü tekrar eden bir görevi erken tamamlamak beklediğiniz tekrarı atlar. Açık: her şeyi istediğiniz zaman tamamlayın."
         },
-        "description": "Listelerinizi seçmek bu sayfanın üstündeki \"Liste ekle\" düğmesi. Buradakiler onun arkasındaki ayarlar."
+        "description": "Listelerinizi seçmek bu sayfanın üstündeki \"Listeleri yönet\" düğmesi. Buradakiler onun arkasındaki ayarlar."
       }
     }
   },
   "config_subentries": {
-    "list": {
+    "manage_lists": {
       "initiate_flow": {
-        "user": "Liste ekle"
+        "user": "Listeleri yönet"
       },
-      "title": "Liste ekle",
       "step": {
         "user": {
-          "title": "Liste ekle",
-          "description": "Her düğüm bir liste olabilir. Doğrudan alt öğeleri listenin maddeleri olur. Çizgiyle işaretli satırlar yalnızca bağlam içindir. İşaretli satırlar zaten listedir; kaldırmak için işareti kaldırın.",
+          "title": "Listeleri yönet",
+          "description": "Her düğüm bir liste olabilir. Doğrudan alt öğeleri listenin maddeleri olur. Çizgiyle işaretli satırlar yalnızca bağlam içindir. İşaretli satırlar şu anki listelerinizdir: eklemek için bir satırı işaretleyin, kaldırmak için işaretini kaldırın.",
           "data": {
-            "projects": "Listeler"
+            "lists": "Listeler"
           }
         }
       },
       "abort": {
         "cannot_connect": "ProgressCove'a ulaşılamadı.",
-        "lists_updated": "Listeler güncellendi."
+        "lists_updated": "Listeler güncellendi.",
+        "lists_unchanged": "Hiçbir şey değişmedi."
       },
       "entry_type": "Liste",
       "error": {
         "not_selectable": "O satır yalnızca bağlam içindir. Çizgisiz bir satır seçin."
       }
     },
+    "list": {
+      "initiate_flow": {
+        "user": "Liste ekle"
+      },
+      "step": {
+        "user": {
+          "title": "Liste ekle",
+          "description": "Herhangi bir düğüm seçin. Doğrudan alt öğeleri listenin maddeleri olur. Birden çok listeyi tek seferde eklemek ya da kaldırmak için \"Listeleri yönet\"i kullanın.",
+          "data": {
+            "node_id": "Liste"
+          }
+        }
+      },
+      "abort": {
+        "cannot_connect": "ProgressCove'a ulaşılamadı.",
+        "no_tasks_left": "Seçilebilecek her şey zaten bir liste.",
+        "already_configured": "Bu zaten bir liste."
+      },
+      "error": {
+        "unavailable": "Bu artık seçilemiyor. Başka birini seçin."
+      },
+      "entry_type": "Liste"
+    },
     "button": {
       "initiate_flow": {
         "user": "Düğme ekle"
       },
-      "title": "Düğme ekle",
       "step": {
         "user": {
           "title": "Düğme ekle",
@@ -133,15 +158,18 @@
       },
       "abort": {
         "cannot_connect": "ProgressCove'a ulaşılamadı.",
-        "no_tasks_left": "Her görevin zaten bir tanesi var."
+        "no_tasks_left": "Her görevin zaten bir tanesi var.",
+        "already_configured": "Bu görevin zaten bir düğmesi var."
       },
-      "entry_type": "Düğme"
+      "entry_type": "Düğme",
+      "error": {
+        "unavailable": "Bu artık seçilemiyor. Başka birini seçin."
+      }
     },
     "switch": {
       "initiate_flow": {
         "user": "Anahtar ekle"
       },
-      "title": "Anahtar ekle",
       "step": {
         "user": {
           "title": "Anahtar ekle",
@@ -153,15 +181,18 @@
       },
       "abort": {
         "cannot_connect": "ProgressCove'a ulaşılamadı.",
-        "no_tasks_left": "Her görevin zaten bir tanesi var."
+        "no_tasks_left": "Her görevin zaten bir tanesi var.",
+        "already_configured": "Bu görevin zaten bir anahtarı var."
       },
-      "entry_type": "Anahtar"
+      "entry_type": "Anahtar",
+      "error": {
+        "unavailable": "Bu artık seçilemiyor. Başka birini seçin."
+      }
     },
     "sensor": {
       "initiate_flow": {
         "user": "İlerleme sensörü ekle"
       },
-      "title": "İlerleme sensörü ekle",
       "step": {
         "user": {
           "title": "İlerleme sensörü ekle",
@@ -173,19 +204,178 @@
       },
       "abort": {
         "cannot_connect": "ProgressCove'a ulaşılamadı.",
-        "no_tasks_left": "Her şeyin zaten bir sensörü var."
+        "no_tasks_left": "Her şeyin zaten bir sensörü var.",
+        "already_configured": "Bunun zaten bir ilerleme sensörü var."
       },
-      "entry_type": "İlerleme sensörü"
+      "entry_type": "İlerleme sensörü",
+      "error": {
+        "unavailable": "Bu artık seçilemiyor. Başka birini seçin."
+      }
+    }
+  },
+  "selector": {
+    "tier": {
+      "options": {
+        "1": "1 - Alan",
+        "2": "2 - Proje",
+        "3": "3 - Görev",
+        "4": "4 - Alt görev",
+        "5": "5 - Katman 5",
+        "6": "6 - Katman 6",
+        "7": "7 - Katman 7",
+        "8": "8 - Katman 8"
+      }
+    },
+    "node_sort": {
+      "options": {
+        "leaf": "Önce görev adı",
+        "root": "Tam yol"
+      }
+    }
+  },
+  "entity": {
+    "todo": {
+      "my_day": {
+        "name": "Günüm"
+      },
+      "inbox": {
+        "name": "Gelen kutusu"
+      }
+    },
+    "button": {
+      "task": {
+        "name": "Görev"
+      }
+    },
+    "switch": {
+      "task": {
+        "name": "Görev"
+      }
+    },
+    "sensor": {
+      "progress": {
+        "name": "İlerleme"
+      }
     }
   },
   "issues": {
     "stale_entities": {
-      "title": "Bazı varlıklar artık var olmayan görevleri gösteriyor",
+      "title": "Bazı varlıklar silinmiş görevleri gösteriyor",
+      "fix_flow": {
+        "step": {
+          "confirm": {
+            "title": "Silinen görevlerin varlıklarını kaldır",
+            "description": "ProgressCove bu görevlerin artık var olmadığını doğruladı: {names}.\n\nVarlıklarını kaldırmak, onları kullanan otomasyonlardan ve panolardan da çıkarır."
+          }
+        },
+        "error": {
+          "cannot_connect": "ProgressCove'a sorulamadı, bu yüzden hiçbir şey kaldırılmadı. Biraz sonra tekrar deneyin."
+        },
+        "abort": {
+          "cannot_connect": "ProgressCove'a sorulamadı, bu yüzden hiçbir şey kaldırılmadı. Biraz sonra tekrar deneyin.",
+          "nothing_to_remove": "Bu görevler ProgressCove'a geri döndü, bu yüzden varlıkları kalıyor.",
+          "not_loaded": "ProgressCove şu anda çalışmıyor. Entegrasyonu yeniden yükleyip tekrar deneyin."
+        }
+      }
+    },
+    "unconfirmed_entities": {
+      "title": "Bazı varlıkların gösterdiği görevler kontrol edilemedi",
       "description": "Bunlar sunucuyla doğrulanamadı, bu yüzden hiçbir şey kaldırılmadı: {names}. O görevleri sildiyseniz bunları entegrasyon sayfasından silin. Silmediyseniz, sunucuya ulaşılabildiğinde kendiliğinden geri gelirler."
     },
     "read_only": {
       "title": "ProgressCove salt okunur modda",
       "description": "Bu Home Assistant'ın kullandığı anahtar yalnızca okuyabilir. Listeler ve kartlar görevlerinizi gösterir, ancak işaretleme, ekleme ve düğmeler kapalıdır. Bunları açmak için ProgressCove'da Ayarlar → Gelişmiş → API anahtarları altında okuma ve yazma yetkili bir anahtar oluşturun, ardından bu entegrasyonu açıp menüsünden Yeniden yapılandır'ı seçin ve yeni anahtarı oraya yapıştırın."
+    },
+    "inbox_unavailable": {
+      "title": "ProgressCove gelen kutusu yüklenemedi",
+      "description": "Home Assistant, ProgressCove gelen kutunuzu yükleyemedi, bu yüzden Gelen kutusu listesi yok. Sunucunun yanıtı: {reason}\n\nSorun giderildiğinde, yeniden denemek için bu entegrasyonu menüsünden yeniden yükleyin."
+    },
+    "subscription_inactive": {
+      "title": "ProgressCove aboneliği etkin değil",
+      "description": "Bu hesabın aboneliği etkin olmadığı için ProgressCove görevlerinizi göndermedi, bu yüzden burada gösterdiği her şey kullanılamıyor. ProgressCove uygulamasında Ayarlar → Sunrise altından yenileyin.\n\nSonrasında burada yapmanız gereken bir şey yok: Home Assistant birkaç dakikada bir yeniden kontrol eder, abonelik etkinleşince kendiliğinden bağlanır ve bu mesaj kaybolur. Aboneliğiniz zaten etkinse ProgressCove bunu şu anda doğrulayamadı demektir; bu durum kendiliğinden düzelir."
+    }
+  },
+  "exceptions": {
+    "read_only": {
+      "message": "Bu ProgressCove anahtarı salt okunur, bu yüzden hiçbir şey değiştirilmedi. Okuma ve yazma yetkili bir anahtar oluşturun ve entegrasyon sayfasında Yeniden yapılandır altına yapıştırın."
+    },
+    "rejected": {
+      "message": "ProgressCove bu değişikliği kabul etmedi: {reason}"
+    },
+    "complete_failed": {
+      "message": "ProgressCove bu görevi tamamlayamadı."
+    },
+    "reopen_failed": {
+      "message": "ProgressCove bu görevi yeniden açamadı."
+    },
+    "add_failed": {
+      "message": "ProgressCove bu görevi ekleyemedi."
+    },
+    "update_failed": {
+      "message": "ProgressCove bu görevi güncelleyemedi."
+    },
+    "delete_failed": {
+      "message": "ProgressCove bu görevi silemedi."
+    },
+    "not_due_yet": {
+      "message": "{name} için henüz vakit gelmedi. Sıradaki tarih: {due}."
+    },
+    "not_due_yet_undated": {
+      "message": "{name} için henüz vakit gelmedi."
+    },
+    "repeat_cannot_reopen": {
+      "message": "{name} tekrarlanan bir görev, bu yüzden tamamlanınca bir sonraki tekrarına geçti. Burada yeniden açmak onu yanlış güne bırakır. ProgressCove uygulamasından değiştirin."
+    },
+    "unknown_node": {
+      "message": "{node_id} kimlikli bir ProgressCove görevi yok. Kimliği bir karttan ya da node_id özniteliğinden kopyalayın."
+    },
+    "not_loaded": {
+      "message": "Şu anda yüklü bir ProgressCove hesabı yok. Nedeni entegrasyon sayfasında yazıyor."
+    },
+    "complete_not_sent": {
+      "message": "\"{name}\" tamamlanamadı. Kaydedilmedi ve görev olduğu gibi duruyor."
+    },
+    "subscription_inactive": {
+      "message": "Hesabın aboneliği etkin olmadığı için ProgressCove bunu reddetti. Uygulamada Ayarlar → Sunrise altından yenileyin."
+    },
+    "not_my_day": {
+      "message": "{entity_id} bir ProgressCove Günüm listesi değil. Bu eylem yalnızca Günüm için yanıt verir."
+    }
+  },
+  "services": {
+    "complete": {
+      "name": "Görevi tamamla",
+      "description": "Herhangi bir ProgressCove görevini, hangi derinlikte olursa olsun tamamlandı olarak işaretler. Bir listenin kendi maddelerinden olmadığı için todo.update_item ile ulaşılamayan alt görevler de buna dahildir. Tekrarlanan bir görev gönderilmeden önce on saniye bekletilir, bu sürede reopen çağrılırsa iptal edilir. Diğer görevler hemen gönderilir ve her zamanki gibi yeniden açılabilir.",
+      "fields": {
+        "node_id": {
+          "name": "Görev",
+          "description": "Görevin kimliği. Bir karttan ya da görevin düğmesindeki veya anahtarındaki node_id özniteliğinden okuyabilirsiniz."
+        }
+      }
+    },
+    "reopen": {
+      "name": "Görevi yeniden aç",
+      "description": "Bir tamamlamayı geri alır. On saniyelik süre içindeyse bekleyen gönderimi iptal eder ve sunucuya hiçbir şey iletilmez. Süre geçtikten sonra sıradan bir görevi yeniden açar. Tekrarlanan bir görev ise reddedilir, çünkü tamamlandığında zaten bir sonraki tekrarına geçmiştir.",
+      "fields": {
+        "node_id": {
+          "name": "Görev",
+          "description": "Görevin kimliği. Bir karttan ya da görevin düğmesindeki veya anahtarındaki node_id özniteliğinden okuyabilirsiniz."
+        }
+      }
+    },
+    "get_nested_items": {
+      "name": "Alt görevleri getir",
+      "description": "Bir listedeki her maddenin alt öğelerini, ait oldukları maddeye göre gruplayarak döndürür. Listenin kendi maddeleri için todo.get_items'ı kullanın, o liste ne kadar uzun olursa olsun hepsini döndürür. Bu eylem bir alt seviyeyi verir; yapılacaklar maddesinde buna yer yoktur.",
+      "fields": {
+        "node_id": {
+          "name": "Liste",
+          "description": "Listenin kimliği. Yapılacaklar varlığının node_id özniteliğinden okuyabilirsiniz."
+        }
+      }
+    },
+    "get_my_day_details": {
+      "name": "Günüm ayrıntılarını getir",
+      "description": "Günüm'deki her madde için yapılacaklar maddesinde alanı olmayan bilgileri döndürür: bulunduğu bölüm, ona giden yol, emojisi ve saati. Maddelerin kendisi için aynı varlıkta todo.get_items'ı kullanın."
     }
   }
 }

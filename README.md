@@ -19,6 +19,7 @@ Integration adds the following to Home Assistant:
   - My Day: Similar to the widget on mobile apps, shows due and ongoing tasks and reminders for the day.
   - Project card: Shows list view of any selected point in the task tree two descendants deep.
   - Icon card: This will show selected tasks as buttons that are clickable when due.
+  - Add task card: A text field that adds a task to the inbox or any picked list.
 
 ![Icon card: a wall of task tiles, lit when due and dimmed otherwise](docs/images/icon-card.gif)
 
@@ -36,9 +37,9 @@ Alternative to Home Assistant's built-in to-do card, which flattens the view.
 
 ## Status
 
-The integration is stable and in daily use, quick add (adding tasks to 'Unsorted' bucket, aka Inbox)
-with a custom card, is being worked on. HACS inclusion is pending, and it's installed as a custom
-repo for now.
+Version 1.0. The integration is stable and in daily use. Inclusion in the HACS default store is
+pending ([hacs/default PR #10756](https://github.com/hacs/default/pull/10756)); until then, install
+it as a custom repository.
 
 Please post bugs and feature requests on
 [GitHub Issues](https://github.com/Twenty-Shores/progresscove-homeassistant/issues).
@@ -110,21 +111,36 @@ subtasks yet is still on the list. Pick it and you get an empty list that fills 
 you add the first subtask, no return trip to this screen. What is pre-ticked is a starting point,
 not a rule: tick a task you are about to break down, untick a branch you never want on the wall.
 
-Change the selection any time under **Configure**. Unpicking a list removes its entity and touches
+Each list you pick becomes its own entry under the account on the integration page, the same way a
+button or a switch does. Two buttons at the top of the integration page change them:
+
+- **Manage lists** opens the same picker with your current lists ticked. Tick a row to add that
+  list, untick one to remove it, several at once if you like.
+- **Add a list** picks one node and adds it, the same way **Add a button** does.
+
+Either way the list gets the same kind of row. To remove a single list, open the menu on its own row
+and delete it, or untick it under **Manage lists**. Removing a list removes its entity and touches
 nothing in your data.
 
 ## What you get
 
 | Entity | What it is |
 |---|---|
-| `todo.<list_name>` | One per list you picked. Its direct children are the items. |
-| `todo.my_day` | Today, decided by the server: the same "today" your phone shows. Always present. |
-| `button.<task>` | A task you added as a wall button. Press to complete today's occurrence. |
-| `switch.<task>` | A task as a switch: readable in automations, off to complete. |
-| `sensor.<project>` | How far through its items a project is, as a percentage. |
+| `todo.progresscove_<list_path>` | One per list you picked, each its own entry on the integration page. Its direct children are the items. |
+| `todo.progresscove_my_day` | Today, decided by the server: the same "today" your phone shows. Always present. |
+| `todo.progresscove_inbox` | Your inbox, for adding without choosing a list first. Always present. |
+| `button.progresscove_<task>` | A task you added as a wall button. Press to complete today's occurrence. |
+| `switch.progresscove_<task>` | A task as a switch: readable in automations, off to complete. |
+| `sensor.progresscove_<project>` | How far through its items a project is, as a percentage. |
 
 Buttons, switches and sensors are added one at a time from the integration card, never
 automatically. One per task would be hundreds of entities nobody asked for.
+
+Every entity sits under one **ProgressCove** service device per account, which is why each entity
+id starts with `progresscove_`. The device and the entities are tied to the account rather than to
+this particular setup, so removing the integration and adding the same account again brings back
+the same entities. An account can be set up once per Home Assistant; adding it a second time is
+refused.
 
 ### Button or switch?
 
@@ -139,6 +155,20 @@ is done: a template, a condition, or a trigger on `to: "off"`. The cost is that 
 does not stay off, since completing one reopens it on a later day.
 
 Add either from the integration page; a task can have both.
+
+### When a task is deleted
+
+A task deleted in the app leaves its list, button, switch or sensor here with nothing to point at.
+Before anything is touched, the integration asks the server about that one task. Only a clear "it is
+gone" counts, never a task list that merely came back without it. It asks about a few tasks per
+update, so after deleting a whole project the repair fills in over a few minutes rather than all at
+once.
+
+Then a **Some entities point at deleted tasks** repair appears under **Settings → System →
+Repairs**, naming them. Open it and confirm to remove them in one step. It asks first because
+removing an entity also takes it out of any automation or dashboard that uses it. To have them
+removed without asking, turn on *Remove entities when their task is deleted* in the integration's
+options.
 
 ### Automations
 
@@ -169,6 +199,11 @@ Only repeats wait. Completing a repeat rolls it to its next occurrence and nothi
 so the window is the one chance to undo it. An ordinary task is sent immediately, since it reopens
 perfectly well afterwards.
 
+If the integration reloads inside the window, for example because you changed your lists or fixed a
+repair, a repeat you ticked is sent at once rather than lost. If it cannot be sent, a notification
+says so. A restart of Home Assistant inside the window sends it too. Notifications do not survive a
+restart, so a failure then is written to the Home Assistant log as an error instead.
+
 **A task that is not due yet is refused.** Completing an occurrence before it arrives moves a repeat
 past the one you were waiting for, so the button and the switch both say no and tell you the date it
 is next due. If you would rather decide that for yourself, turn on *Allow completing before the due
@@ -181,17 +216,21 @@ about ten seconds. The switch also stays `on` on days the task is not due: it re
 task is open, not whether today is its day. For that, read its `due_date` attribute, or use a
 button, whose icon-card tile dims until the next occasion it is due.
 
-A task switch therefore draws as two buttons rather than a slider: off is a command, not a claim
-that it can be put back.
-
 ## Cards
 
-Three cards ship with the integration and register themselves as dashboard resources, so they are in
-the card picker as soon as it is set up. Nothing to copy and nothing to add by hand: search for
-"ProgressCove" under **Edit → Add card**, or paste one of these under **Edit → Add card → Manual**.
+Four cards ship with the integration. Setting it up adds them to your dashboard resources once, so
+they are in the card picker straight away, with nothing to copy and nothing to add by hand: search
+for "ProgressCove" under **Edit → Add card**, or paste one of these under **Edit → Add card →
+Manual**.
 
-Their urls carry a digest of the card files, so an upgrade that changes a card retires the copy your
-browser is holding on its own.
+The integration remembers which resources it added. If you delete one under **Settings →
+Dashboards → Resources**, it stays deleted: it is not added back on the next restart or upgrade.
+Removing the last ProgressCove account removes the resources the integration added and nothing
+else. If your resources are kept in YAML, nothing is written to them; the cards are loaded alongside
+the frontend instead, until the last account is removed.
+
+Their urls carry a digest of the card files, so an upgrade that changes a card moves the resource
+the integration added to the new url, and the copy your browser is holding is retired on its own.
 
 ### My Day
 
@@ -202,8 +241,8 @@ type: custom:progresscove-myday-card
 title: My Day
 ```
 
-Reads `todo.my_day` and renders the server's three sections, with the parent name under each task so
-a nested one is not stranded without context. Tapping ticks it off; the integration holds the write
+Reads `todo.progresscove_my_day` and renders the server's three sections, with the parent name
+under each task so a nested one is not stranded without context. Tapping ticks it off; the integration holds the write
 for ten seconds, so tapping again inside that window undoes it.
 
 ### Icons
@@ -215,8 +254,8 @@ type: custom:progresscove-icon-card
 title: Recurring chores
 columns: 3
 entities:
-  - button.water_the_plants
-  - button.take_garbage_out
+  - button.progresscove_water_the_plants
+  - button.progresscove_take_garbage_out
 ```
 
 One tile per task, drawn as its emoji. A tile is lit and pressable only on the day it is due; every
@@ -229,16 +268,28 @@ other tile is dimmed and shows when it is next due.
 ```yaml
 type: custom:progresscove-card
 entities:
-  - todo.home_shopping_groceries
+  - todo.progresscove_home_shopping_groceries
 ```
 
 Or `demo: true` to preview with sample data.
 
+### Add a task
+
+```yaml
+type: custom:progresscove-add-card
+entity: todo.progresscove_inbox
+```
+
+A text field and an **Add** button; Enter adds too. The text goes to `todo.add_item` on the chosen
+list, `todo.progresscove_inbox` unless another is picked, and becomes the new task's name as typed.
+The field clears after an add and the card says which list it went to. A refused add keeps the text in the field and shows the reason. With a
+read-only token the field is off and the card says adding is not allowed.
+
 ### Switches in stock cards
 
-A task switch works in Entities, Tile or Button cards. `assumed_state` makes Home Assistant draw two
-buttons rather than a toggle, because completing a repeat goes one way. Turning one off completes
-the task after the ten-second window; turning it back on inside that window undoes it.
+A task switch works in Entities, Tile or Button cards as an ordinary toggle. Turning one off
+completes the task. On a repeat that happens once the ten-second window closes, and turning it back
+on inside the window undoes it.
 
 The stock **To-do list** card works on any of these entities too; it just shows one flat list with
 no sections or nested items.
@@ -246,7 +297,7 @@ no sections or nested items.
 ## Refresh interval
 
 The integration checks every minute, so a change made in the app, on the web, or on your phone shows
-up within a minute. The interval is adjustable under **Configure**, from 1 to 60 minutes.
+up within a minute.
 
 That interval governs **inbound** changes only. Anything you do *from* Home Assistant is sent
 immediately and never waits for it.
@@ -259,14 +310,17 @@ that can read a stock list can read ours at any size:
 ```yaml
 action: todo.get_items
 target:
-  entity_id: todo.home_shopping_groceries
+  entity_id: todo.progresscove_home_shopping_groceries
 ```
 
-They are deliberately NOT entity attributes. Home Assistant rewrites an attribute payload in full on
-every change and truncates it past 16 KB, so a list of a couple of hundred tasks broke the entity
-outright. The stock to-do entity publishes 33 bytes for the same reason. What stays on the
-attributes are the counts (`items_done`, `items_total`, `items_percent`, `items_complete`,
+A picked list's items are deliberately NOT entity attributes. Home Assistant writes an entity's
+attributes into its state on every change and sends them to every browser connected to it, whether
+or not that browser shows the list, and the recorder refuses attributes over 16 KB: it logs a
+warning and stores none of them, so a long list would lose its counts from history too. What stays
+on the attributes are the counts (`items_done`, `items_total`, `items_percent`, `items_complete`,
 `nested_items_total`, `nested_items_done`): fixed-size, and what an automation actually asks for.
+`progress_bar_hidden` sits beside them: whether the list's progress bar is turned off in the app,
+which the projects card follows.
 
 Subtasks are one level below what `get_items` returns, since a to-do item has no children. For
 those, **`progresscove.get_nested_items`** takes a `node_id` and returns them keyed by their parent:
@@ -274,12 +328,23 @@ those, **`progresscove.get_nested_items`** takes a `node_id` and returns them ke
 ```yaml
 action: progresscove.get_nested_items
 data:
-  node_id: "{{ state_attr('todo.home_shopping', 'node_id') }}"
+  node_id: "{{ state_attr('todo.progresscove_home_shopping', 'node_id') }}"
 ```
 
-Because the attributes are now counts only, recording a list's history costs about 230 bytes per
-change whatever its size. If you want even that gone, exclude the entity under `recorder:`; the
+Because a picked list's attributes are counts only, recording its history costs about 230 bytes
+per change whatever its size. If you want even that gone, exclude the entity under `recorder:`; the
 cards read live state and never history.
+
+My Day follows the same rule. `todo.get_items` on `todo.progresscove_my_day` returns today's items
+in the server's order. What a to-do item has no field for, each item's section, the path to it, its
+emoji and the time it is for, comes from **`progresscove.get_my_day_details`**, which the My Day
+card calls:
+
+```yaml
+action: progresscove.get_my_day_details
+target:
+  entity_id: todo.progresscove_my_day
+```
 
 ## Scopes
 
@@ -301,6 +366,13 @@ back.
 A token can be revoked whenever you like, from the same **API Tokens** screen that created it.
 Revoking cuts off that Home Assistant instance immediately and touches nothing else, so a lost or
 retired box is one tap rather than a password change.
+
+## If your subscription lapses
+
+ProgressCove stops sending your tasks, so the integration's entities become unavailable and a
+**ProgressCove subscription is not active** repair says why. Your token is still fine, so you are
+not asked for a new one. Renew in the app under **Settings → Sunrise** and Home Assistant reconnects
+on its own within a few minutes; the repair goes away with it.
 
 ## License
 

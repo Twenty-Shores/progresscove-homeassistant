@@ -5,10 +5,10 @@ separator invents a level that does not exist, and a card following one node pul
 tasks.
 """
 import importlib.util
+from pathlib import Path
 import sys
 import types
 import unittest
-from pathlib import Path
 
 COMPONENT = Path(__file__).resolve().parents[1] / "custom_components" / "progresscove"
 if "progresscove" not in sys.modules:

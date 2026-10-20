@@ -11,6 +11,7 @@ import assert from "node:assert/strict";
 import { loadCard } from "./harness.mjs";
 
 const CARDS = {
+  "progresscove-add-card.js": "progresscove-add-card",
   "progresscove-card.js": "progresscove-card",
   "progresscove-icon-card.js": "progresscove-icon-card",
   "progresscove-myday-card.js": "progresscove-myday-card",
@@ -28,17 +29,17 @@ for (const [file, element] of Object.entries(CARDS)) {
 }
 
 for (const [file, element] of Object.entries(CARDS)) {
-  test(`${element} prints one banner naming the version it loaded`, async () => {
+  test(`${element} loads without writing to the console`, async () => {
+    // A dashboard loads every card on every page, so a line per card is noise in every browser
+    // console of the house.
     const lines = [];
-    const original = console.info;
-    console.info = (...args) => lines.push(args);
+    const originals = { info: console.info, log: console.log };
+    console.info = console.log = (...args) => lines.push(args);
     try {
       await loadCard(file);
     } finally {
-      console.info = original;
+      Object.assign(console, originals);
     }
-    assert.equal(lines.length, 1);
-    assert.equal(lines[0][0], `${element} %s`);
-    assert.equal(lines[0][1], "unversioned", "the test harness loads from a url with no ?v=");
+    assert.deepEqual(lines, []);
   });
 }

@@ -1,0 +1,44 @@
+{
+  "entity": {
+    "button": {
+      "task": {
+        "default": "mdi:checkbox-marked-circle-outline"
+      }
+    },
+    "sensor": {
+      "progress": {
+        "default": "mdi:progress-check"
+      }
+    },
+    "switch": {
+      "task": {
+        "default": "mdi:checkbox-blank-circle-outline",
+        "state": {
+          "off": "mdi:checkbox-marked-circle-outline"
+        }
+      }
+    },
+    "todo": {
+      "my_day": {
+        "default": "mdi:white-balance-sunny"
+      },
+      "inbox": {
+        "default": "mdi:inbox"
+      }
+    }
+  },
+  "services": {
+    "complete": {
+      "service": "mdi:check-circle-outline"
+    },
+    "reopen": {
+      "service": "mdi:restore"
+    },
+    "get_nested_items": {
+      "service": "mdi:file-tree"
+    },
+    "get_my_day_details": {
+      "service": "mdi:white-balance-sunny"
+    }
+  }
+}

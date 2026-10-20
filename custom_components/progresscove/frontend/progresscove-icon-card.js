@@ -30,9 +30,24 @@ function taskButtons(hass) {
     .sort();
 }
 
+/** An entity's own name: its friendly_name without the device name Home Assistant puts in front.
+ *
+ *  Every entity of an account sits under one ProgressCove device, so a list's friendly_name reads
+ *  "ProgressCove Home › Groceries" while the path is what this card shows and matches on. A name
+ *  the person set on the entity itself carries no prefix and comes back as it is.
+ */
+function ownName(hass, entityId) {
+  const friendly = hass?.states?.[entityId]?.attributes?.friendly_name ?? "";
+  const device = hass?.devices?.[hass?.entities?.[entityId]?.device_id];
+  const deviceName = device?.name_by_user || device?.name;
+  return deviceName && friendly.startsWith(`${deviceName} `)
+    ? friendly.slice(deviceName.length + 1)
+    : friendly;
+}
+
 /** The path a followed list entity stands for, e.g. `Home › Repeating home tasks`. */
 function listPath(hass, entityId) {
-  const name = hass?.states?.[entityId]?.attributes?.friendly_name ?? "";
+  const name = ownName(hass, entityId);
   // My Day is a todo entity with no branch beneath it, and the selector cannot exclude it, so
   // following it is ignored rather than silently matching nothing.
   return name.includes(" › ") ? name : "";
@@ -325,7 +340,7 @@ class ProgressCoveIconCard extends HTMLElement {
     // The emoji is the whole point; a task with none still needs a tile, so fall back to a mark
     // rather than rendering an empty square.
     const emoji = attrs.emoji || "•";
-    const name = attrs.friendly_name || "Task";
+    const name = ownName(this._hass, state.entity_id) || "Task";
     return `
       <button class="pc-tile ${due ? "due" : "waiting"}"
               data-entity="${esc(state.entity_id)}"
@@ -367,5 +382,3 @@ if (!window.customCards.some((c) => c.type === "progresscove-icon-card"))
     name: "ProgressCove Icons",
     description: "Tappable task icons, lit when due, dimmed until their day.",
   });
-
-console.info(`progresscove-icon-card %s`, new URL(import.meta.url).searchParams.get("v") ?? "unversioned");

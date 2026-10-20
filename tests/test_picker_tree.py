@@ -4,10 +4,10 @@ A select option is {value, label} and nothing more, so the structure lives in ch
 hanging from the wrong row is worse than no drawing at all.
 """
 import importlib.util
+from pathlib import Path
 import sys
 import types
 import unittest
-from pathlib import Path
 
 # Loaded as part of a stub package rather than as a bare file: picker_tree needs nothing from Home
 # Assistant, but it does import a sibling, and a relative import needs a parent to resolve against.
@@ -109,7 +109,7 @@ class DepthRangeTest(unittest.TestCase):
     def test_a_tier_above_the_range_is_kept_as_context(self):
         labels = tree_labels(self._tree(), 3, 4)
         # Home and Shopping are not pickable, but without them Groceries floats with no context.
-        self.assertTrue(labels["home"].startswith("—"))
+        self.assertTrue(labels["home"].startswith("-"))
         self.assertIn("Shopping", labels["shop"])
         self.assertNotIn("home", selectable_ids(self._tree(), 3, 4))
         self.assertIn("groc", selectable_ids(self._tree(), 3, 4))

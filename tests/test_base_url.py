@@ -5,8 +5,8 @@ crosses, which the person setting this up knows and the code does not. What IS r
 address no request could be made to.
 """
 import importlib.util
-import unittest
 from pathlib import Path
+import unittest
 
 _spec = importlib.util.spec_from_file_location(
     "base_url",
@@ -118,7 +118,7 @@ class TokenChangeTest(unittest.TestCase):
     def test_reauth_routes_an_unpaired_token_to_pairing(self):
         source = self._flow()
         start = source.index("async def async_step_reauth_confirm")
-        reauth = source[start:source.index("def _save_reauth_token")]
+        reauth = source[start:source.index("async def _async_save_reauth_token")]
         self.assertIn('self._after_pairing = "reauth"', reauth)
         self.assertIn("return await self.async_step_pair()", reauth)
 
@@ -129,7 +129,7 @@ class TokenChangeTest(unittest.TestCase):
 
     def test_reauth_stores_the_id_the_token_was_bound_to(self):
         source = self._flow()
-        start = source.index("def _save_reauth_token")
+        start = source.index("async def _async_save_reauth_token")
         saver = source[start:source.index("async def _async_check_token")]
         self.assertIn("CONF_DEVICE_ID: self._device_id", saver)
 
@@ -137,13 +137,13 @@ class TokenChangeTest(unittest.TestCase):
         source = self._flow()
         form = source[source.index("def _show_reconfigure"):
                       source.index("async def _async_finish_reconfigure")]
-        self.assertIn("vol.Optional(CONF_TOKEN): str", form)
+        self.assertIn("vol.Optional(CONF_TOKEN): _token_selector()", form)
         self.assertNotIn("vol.Required(CONF_TOKEN", form)
 
     def test_reconfigure_routes_an_unpaired_token_to_pairing(self):
         source = self._flow()
         finish = source[source.index("async def _async_finish_reconfigure"):
-                        source.index("def _save_reconfigured")]
+                        source.index("async def _async_save_reconfigured")]
         self.assertIn('self._after_pairing = "reconfigure"', finish)
         self.assertIn("return await self.async_step_pair()", finish)
 
@@ -161,7 +161,7 @@ class PairingErrorTest(unittest.TestCase):
         source = (Path(__file__).resolve().parents[1] / "custom_components" / "progresscove"
                   / "config_flow.py").read_text()
         start = source.index("async def async_step_pair")
-        pair = source[start:source.index("async def async_step_projects")]
+        pair = source[start:source.index("async def async_step_lists")]
         self.assertIn('if errors.get("base") == "invalid_auth":\n                errors = '
                       '{"base": "not_paired_yet"}', pair)
 
@@ -210,7 +210,7 @@ class ReconfigureScopeTest(unittest.TestCase):
         source = self._flow()
         start = source.index("def _save_credentials")
         saver = source[start:source.index("async def async_step_reauth")]
-        self.assertNotIn("CONF_PROJECTS:", saver, "reconfigure should not rewrite CONF_PROJECTS")
+        self.assertNotIn("subentries", saver, "reconfigure should not rewrite the lists")
 
     def test_there_is_no_project_step_left_on_this_route(self):
         self.assertNotIn("async_step_reconfigure_projects", self._flow())

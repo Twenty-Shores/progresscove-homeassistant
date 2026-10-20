@@ -5,25 +5,30 @@ from __future__ import annotations
 from collections.abc import Iterator
 from contextlib import contextmanager
 from datetime import date, datetime, timezone
-import logging
-from typing import Any
-from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
+from typing import TYPE_CHECKING, Any
+from zoneinfo import ZoneInfo
 
-from homeassistant.core import HomeAssistant
-from homeassistant.exceptions import HomeAssistantError
+from homeassistant.exceptions import HomeAssistantError, ServiceValidationError
+from homeassistant.util import dt as dt_util
 
-from .api import ProgressCoveError, ProgressCoveRejected
-from .const import DEFAULT_SCAN_MINUTES, MAX_SCAN_MINUTES, MIN_SCAN_MINUTES, READ_ONLY_MESSAGE
+from .api import (
+    ProgressCoveError,
+    ProgressCoveReadOnly,
+    ProgressCoveRejected,
+    ProgressCoveSubscriptionInactive,
+)
+from .const import DOMAIN, STATUS_COMPLETED
 
-_LOGGER = logging.getLogger(__name__)
-
+if TYPE_CHECKING:
+    # The coordinator imports the modules that import this one, so the type is only named.
+    from .coordinator import ProgressCoveCoordinator
 
 # The apps store a due day with no time of day as 23:59:59.999 in the person's own timezone. The
 # .999 is the marker: nobody picks milliseconds.
 _NO_TIME_MICROSECOND = 999_000
 
 
-def _parse_due(value: str | None, zone: ZoneInfo) -> datetime | date | None:
+def parse_due(value: str | None, zone: ZoneInfo) -> datetime | date | None:
     """The API sends tz-aware ISO-8601; HA wants a date or an aware datetime.
 
     A due day with no time comes back as that day in the house's timezone, so HA shows a date
@@ -58,47 +63,55 @@ def due_for_api(due: date | datetime | None, zone: ZoneInfo) -> str | None:
     ).isoformat()
 
 
+def translated_error(
+    key: str, error_type: type[HomeAssistantError] = HomeAssistantError, **placeholders: str
+) -> HomeAssistantError:
+    """An error whose message comes from the `exceptions` catalogue, in the person's language."""
+    return error_type(
+        translation_domain=DOMAIN,
+        translation_key=key,
+        translation_placeholders=placeholders or None,
+    )
+
+
 @contextmanager
-def surfaced(action: str) -> Iterator[None]:
+def surfaced(failure_key: str) -> Iterator[None]:
     """Make every write failure reach the person who asked for it.
 
-    A rejection the server explained is shown in its own words; anything unclassifiable still says
-    something went wrong rather than dying in the log.
+    `failure_key` names the message for a failure nobody could classify. A rejection the server
+    explained is shown in its own words; anything unclassifiable still says something went wrong
+    rather than dying in the log. A refusal of what was asked is a ServiceValidationError, so
+    Home Assistant shows it without logging a fault; a failure to reach or use the server is not.
     """
     try:
         yield
+    except ProgressCoveReadOnly as err:
+        raise translated_error("read_only", ServiceValidationError) from err
     except ProgressCoveRejected as err:
-        raise HomeAssistantError(str(err)) from err
+        raise translated_error("rejected", ServiceValidationError, reason=str(err)) from err
+    except ProgressCoveSubscriptionInactive as err:
+        raise translated_error("subscription_inactive") from err
     except ProgressCoveError as err:
-        _LOGGER.error("Could not %s: %s", action, err)
-        raise HomeAssistantError(f"ProgressCove could not {action}.") from err
+        raise translated_error(failure_key) from err
 
 
-def refuse_if_read_only(coordinator) -> None:
+def refuse_if_read_only(coordinator: ProgressCoveCoordinator) -> None:
     """Raise before a write the token would only have bounced.
 
     The server enforces this regardless. Asking first spares a round trip and puts the reason in
     front of the person instead of a generic failure.
     """
     if coordinator.read_only:
-        raise HomeAssistantError(READ_ONLY_MESSAGE)
+        raise translated_error("read_only", ServiceValidationError)
 
 
-def repeats(node: dict) -> bool:
+def repeats(node: dict[str, Any]) -> bool:
     """Whether completing this node advances a schedule rather than finishing it.
 
     The line between reversible and not: completing a repeat moves its due date and uncompleting
     does not move it back, so reopening one leaves it on the wrong day.
     """
     return bool(node.get("recurrence_rule"))
-
-
-def timezone_of(hass: HomeAssistant) -> ZoneInfo:
-    """The house's timezone. "Due today" is a question about the wall calendar, not about UTC."""
-    try:
-        return ZoneInfo(hass.config.time_zone)
-    except (ZoneInfoNotFoundError, ValueError, TypeError):
-        return ZoneInfo("UTC")
 
 
 def due_date(node: dict[str, Any], zone: ZoneInfo) -> date | None:
@@ -124,8 +137,9 @@ def due_date(node: dict[str, Any], zone: ZoneInfo) -> date | None:
     return parsed.astimezone(zone).date()
 
 
-def is_due(node: dict, hass: HomeAssistant) -> bool:
-    """Whether today is the day this task is for.
+def is_due(node: dict[str, Any]) -> bool:
+    """Whether today is the day this task is for, in the house's timezone: "due today" is a
+    question about the wall calendar, not about UTC.
 
     False for an undated task, which has no day to be. `can_complete` is the one to ask before
     acting: an undated task is completable but never "due".
@@ -133,42 +147,22 @@ def is_due(node: dict, hass: HomeAssistant) -> bool:
     `<=` rather than `==`, so an occurrence whose day has passed but which the server has not yet
     rolled still counts.
     """
-    from .const import STATUS_COMPLETED
-
     if not node or node.get("status") == STATUS_COMPLETED:
         return False
-    tz = timezone_of(hass)
-    due = due_date(node, tz)
-    return due is not None and due <= datetime.now(tz).date()
+    zone = dt_util.get_default_time_zone()
+    due = due_date(node, zone)
+    return due is not None and due <= dt_util.now().date()
 
 
-def can_complete(node: dict, hass: HomeAssistant) -> bool:
+def can_complete(node: dict[str, Any]) -> bool:
     """Whether completing this task now is a sensible thing to do.
 
     Only a FUTURE due date says no, since completing an occurrence that has not arrived rolls a
     repeat past the real one. An undated task has no too-early to be.
     """
-    from .const import STATUS_COMPLETED
-
     if not node or node.get("status") == STATUS_COMPLETED:
         return False
-    tz = timezone_of(hass)
-    due = due_date(node, tz)
-    return due is None or due <= datetime.now(tz).date()
+    zone = dt_util.get_default_time_zone()
+    due = due_date(node, zone)
+    return due is None or due <= dt_util.now().date()
 
-
-def scan_minutes(options: dict) -> int:
-    """The poll interval, clamped.
-
-    The options flow bounds the FORM; this bounds what is read back from storage, where a
-    hand-edited 0 would poll continuously and a string would take setup down inside timedelta.
-    """
-    raw = options.get("scan_minutes", DEFAULT_SCAN_MINUTES)
-    try:
-        minutes = int(raw)
-    except (TypeError, ValueError):
-        _LOGGER.warning(
-            "Ignoring an unreadable scan_minutes (%r); using %s", raw, DEFAULT_SCAN_MINUTES
-        )
-        return DEFAULT_SCAN_MINUTES
-    return max(MIN_SCAN_MINUTES, min(MAX_SCAN_MINUTES, minutes))

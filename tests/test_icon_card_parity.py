@@ -4,13 +4,16 @@
 asserts the two agree node-for-node rather than trusting they were written the same way.
 """
 import asyncio
+from datetime import datetime, timedelta, timezone
 import importlib.util
+from pathlib import Path
 import sys
 import types
 import unittest
-from datetime import datetime, timedelta, timezone
-from pathlib import Path
+from unittest import mock
 from zoneinfo import ZoneInfo
+
+import ha_stubs
 
 ROOT = Path(__file__).resolve().parents[1]
 COMPONENT = ROOT / "custom_components" / "progresscove"
@@ -60,11 +63,13 @@ _module(
     DataUpdateCoordinator=type(
         "DataUpdateCoordinator", (), {"__class_getitem__": classmethod(lambda c, i: c)}
     ),
-    UpdateFailed=type("UpdateFailed", (Exception,), {}),
+    UpdateFailed=ha_stubs.UpdateFailed,
 )
 _module("homeassistant.exceptions",
-        HomeAssistantError=type("HomeAssistantError", (Exception,), {}),
+        HomeAssistantError=ha_stubs.HomeAssistantError,
         ConfigEntryAuthFailed=type("ConfigEntryAuthFailed", (Exception,), {}))
+
+ha_stubs.fill_shared()
 
 _pkg = types.ModuleType("progresscove")
 _pkg.__path__ = [str(COMPONENT)]
@@ -88,9 +93,17 @@ helpers = _load("helpers")
 ZONE = "Europe/Istanbul"
 
 
+# HA hands out the loaded house zone; patched for this module only, since the stub is shared.
+_house_zone = mock.patch.object(helpers.dt_util, "get_default_time_zone", lambda: ZoneInfo(ZONE))
+
+
+def setUpModule():
+    _house_zone.start()
+    unittest.addModuleCleanup(_house_zone.stop)
+
+
 class _Hass:
-    class config:
-        time_zone = ZONE
+    pass
 
 
 class _Pending:
@@ -194,7 +207,7 @@ class CompletionParityTest(unittest.TestCase):
             options = {"complete_early": complete_early}
 
         button, switch = _pair(dict(node))
-        shared = pending.PendingCompletions()
+        shared = pending.PendingCompletions(None, ha_stubs.BackgroundEntry())
         for entity in (button, switch):
             entity.coordinator.pending = shared
             entity.coordinator.client = Client()
@@ -218,11 +231,23 @@ class CompletionParityTest(unittest.TestCase):
                 with self.subTest(name):
                     button, switch, sent = self._rig(self.NOT_YET)
                     entity = button if name == "button" else switch
-                    with self.assertRaises(Exception):
+                    with self.assertRaises(ha_stubs.ServiceValidationError) as caught:
                         await self._complete(entity, name)
                     await asyncio.sleep(0.2)
                     self.assertEqual(sent, [], f"{name}: completed a task that is not due")
+                    self.assertEqual(caught.exception.translation_key, "not_due_yet")
+                    due = (datetime.now(ZoneInfo(ZONE)).date() + timedelta(days=7)).isoformat()
+                    self.assertEqual(str(caught.exception),
+                                     f"Bins is not due yet, next on {due}.")
         asyncio.run(run())
+
+    def test_reopening_a_closed_repeat_is_a_refusal_not_a_fault(self):
+        """The person asked for something the task cannot do; nothing broke."""
+        closed = {**self.REPEAT, "status": STATUS_COMPLETED}
+        _, switch, _ = self._rig(closed)
+        with self.assertRaises(ha_stubs.ServiceValidationError) as caught:
+            asyncio.run(switch.async_turn_on())
+        self.assertEqual(caught.exception.translation_key, "repeat_cannot_reopen")
 
     def test_the_option_allows_completing_early_on_both(self):
         async def run():
@@ -285,28 +310,67 @@ class UndatedTaskTest(unittest.TestCase):
 
     def test_an_undated_task_can_be_completed(self):
         _, switch = _pair(dict(self.UNDATED))
-        self.assertTrue(helpers.can_complete(switch._node, switch.hass))
+        self.assertTrue(helpers.can_complete(switch._node))
 
     def test_an_undated_task_is_not_reported_as_due(self):
         """The card dims it: there is no day to light up for."""
         _, switch = _pair(dict(self.UNDATED))
-        self.assertFalse(helpers.is_due(switch._node, switch.hass))
+        self.assertFalse(helpers.is_due(switch._node))
 
     def test_a_future_task_still_cannot_be_completed(self):
         node = {"id": "n", "name": "Bins", "due_at": _at(7)}
         _, switch = _pair(node)
-        self.assertFalse(helpers.can_complete(switch._node, switch.hass))
+        self.assertFalse(helpers.can_complete(switch._node))
 
     def test_a_task_due_today_or_overdue_can_be_completed(self):
         for label, offset in (("today", 0), ("overdue", -3)):
             with self.subTest(label):
                 _, switch = _pair({"id": "n", "name": "Bins", "due_at": _at(offset)})
-                self.assertTrue(helpers.can_complete(switch._node, switch.hass))
+                self.assertTrue(helpers.can_complete(switch._node))
 
     def test_a_completed_task_cannot_be_completed_again(self):
         node = {"id": "n", "name": "Bins", "status": STATUS_COMPLETED}
         _, switch = _pair(node)
-        self.assertFalse(helpers.can_complete(switch._node, switch.hass))
+        self.assertFalse(helpers.can_complete(switch._node))
+
+class AvailabilityTest(unittest.TestCase):
+    """Unavailable means the server cannot be reached or the task is gone, and nothing else."""
+
+    def _availability(self, node, poll_ok=True, gone=False):
+        button, switch = _pair(node)
+        for entity in (button, switch):
+            ha_stubs.give_coordinator_availability(self, type(entity))
+        coordinator = button.coordinator
+        coordinator.last_update_success = poll_ok
+        if gone:
+            coordinator.data = Tree.from_nodes([])
+        return button.available, switch.available
+
+    def test_a_task_that_is_not_due_stays_available(self):
+        self.assertEqual(self._availability(CASES["due next week"]), (True, True))
+
+    def test_a_failing_poll_makes_both_unavailable(self):
+        self.assertEqual(self._availability(CASES["due today"], poll_ok=False), (False, False))
+
+    def test_a_task_gone_from_the_account_makes_both_unavailable(self):
+        self.assertEqual(self._availability(CASES["due today"], gone=True), (False, False))
+
+
+class UnrecordedAttributesTest(unittest.TestCase):
+    """Attributes that never change for an entity are not worth a row in the history database."""
+
+    def test_the_static_attributes_are_left_out_of_history(self):
+        for entity_class in (ProgressCoveTaskButton, ProgressCoveNodeSwitch):
+            with self.subTest(entity_class.__name__):
+                self.assertLessEqual({"node_id", "emoji", "path"},
+                                     entity_class._unrecorded_attributes)
+
+    def test_the_state_driving_attributes_are_kept(self):
+        for entity_class in (ProgressCoveTaskButton, ProgressCoveNodeSwitch):
+            with self.subTest(entity_class.__name__):
+                self.assertFalse({"actionable", "due_date", "completed"}
+                                 & entity_class._unrecorded_attributes)
+
 
 if __name__ == "__main__":
     unittest.main()

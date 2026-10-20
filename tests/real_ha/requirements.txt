@@ -1,0 +1,2 @@
+# Pinned to the release of pytest-homeassistant-custom-component built from Home Assistant 2026.2.3.
+pytest-homeassistant-custom-component==0.13.316

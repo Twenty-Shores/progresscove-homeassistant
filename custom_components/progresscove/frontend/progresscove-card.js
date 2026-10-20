@@ -214,10 +214,11 @@ class ProgressCoveCard extends HTMLElement {
         const loaded = this._fetched?.[state.entity_id];
         const nested = loaded?.subtasks ?? {};
         return {
-          name: attrs.friendly_name ?? "Project",
+          name: ownName(this._hass, state.entity_id) || "Project",
           done: attrs.items_done ?? 0,
           total: attrs.items_total ?? 0,
           readOnly: attrs.read_only === true,
+          barHidden: attrs.progress_bar_hidden === true,
           tasks: (loaded?.items ?? []).map(item => ({
             name: item.summary ?? item.name,
             due: item.due ?? null,
@@ -377,7 +378,7 @@ class ProgressCoveCard extends HTMLElement {
           <span class="pc-name">${esc(p.name)}</span>
           <span class="pc-count">${p.done} of ${p.total} done</span>
         </div>
-        ${pct > 0 ? `<div class="pc-bar"><div class="pc-fill ${complete ? "done" : ""}"
+        ${pct > 0 && !p.barHidden ? `<div class="pc-bar"><div class="pc-fill ${complete ? "done" : ""}"
              style="width:${pct}%"></div></div>` : `<div style="height:12px"></div>`}
         ${p.tasks.map(t => this._task(t, p.readOnly)).join("")}
       </div>`;
@@ -442,6 +443,21 @@ function dueLabel(iso) {
     : `${day}, ${when.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" })}`;
 }
 
+/** An entity's own name: its friendly_name without the device name Home Assistant puts in front.
+ *
+ *  Every entity of an account sits under one ProgressCove device, so a list's friendly_name reads
+ *  "ProgressCove Home › Groceries" while the path is what this card shows and matches on. A name
+ *  the person set on the entity itself carries no prefix and comes back as it is.
+ */
+function ownName(hass, entityId) {
+  const friendly = hass?.states?.[entityId]?.attributes?.friendly_name ?? "";
+  const device = hass?.devices?.[hass?.entities?.[entityId]?.device_id];
+  const deviceName = device?.name_by_user || device?.name;
+  return deviceName && friendly.startsWith(`${deviceName} `)
+    ? friendly.slice(deviceName.length + 1)
+    : friendly;
+}
+
 /** Task names are user data and land in innerHTML; escaping is not optional. */
 function esc(s) {
   return String(s ?? "").replace(/[&<>"']/g, c =>
@@ -459,5 +475,3 @@ if (!window.customCards.some((c) => c.type === "progresscove-card"))
     name: "ProgressCove",
     description: "Projects, tasks and subtasks with progress, the calm view.",
   });
-
-console.info(`progresscove-card %s`, new URL(import.meta.url).searchParams.get("v") ?? "unversioned");

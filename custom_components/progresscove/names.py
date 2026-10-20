@@ -19,5 +19,9 @@ def display_name(name: str | None) -> str:
     following one would pull in the other's tasks. Control characters go because they can reorder
     or truncate a line wherever it is rendered.
     """
-    cleaned = "".join(ch for ch in (name or "") if ch.isprintable() or ch == " ")
+    cleaned = name or ""
+    # Checked whole first: almost every name is clean, and a character-by-character pass over every
+    # name on a large account is what made the pickers slow.
+    if not cleaned.isprintable():
+        cleaned = "".join(ch for ch in cleaned if ch.isprintable())
     return " ".join(cleaned.replace("›", "/").split())
