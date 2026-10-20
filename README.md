@@ -5,10 +5,7 @@ with web, iOS and Android clients. While the integration is MIT licensed and ope
 and write data requires an active subscription. Fully functional 14 day trial is available to test
 features, no card required.
 
-Quick HACS Install:
-1. In HACS, open the **⋮** menu and choose **Custom repositories**.
-2. Add `https://github.com/Twenty-Shores/progresscove-homeassistant` as an **Integration**.
-3. Find **ProgressCove** in the list, install it, and restart Home Assistant.
+Easiest install is via [HACS](https://hacs.xyz), see [Installation](#installation).
 
 Integration adds the following to Home Assistant:
 - To-do list entities for any part of the to-do tree, which show up as a standard to-do list, usable
@@ -37,9 +34,7 @@ Alternative to Home Assistant's built-in to-do card, which flattens the view.
 
 ## Status
 
-Version 1.0. The integration is stable and in daily use. Inclusion in the HACS default store is
-pending ([hacs/default PR #10756](https://github.com/hacs/default/pull/10756)); until then, install
-it as a custom repository.
+The integration is stable, in daily use and available in the HACS default store.
 
 Please post bugs and feature requests on
 [GitHub Issues](https://github.com/Twenty-Shores/progresscove-homeassistant/issues).
@@ -53,14 +48,12 @@ Additional technical details are below, generated from the source code.
 
 ## Installation
 
-Not in the HACS default store yet, so add it as a custom repository:
+Easiest install is via [HACS](https://hacs.xyz):
 
-1. In HACS, open the **⋮** menu and choose **Custom repositories**.
-2. Add `https://github.com/Twenty-Shores/progresscove-homeassistant` as an **Integration**.
-3. Find **ProgressCove** in the list, install it, and restart Home Assistant.
+[![Open your Home Assistant instance and open this repository in HACS.](https://my.home-assistant.io/badges/hacs_repository.svg)](https://my.home-assistant.io/redirect/hacs_repository/?owner=Twenty-Shores&repository=progresscove-homeassistant&category=integration)
 
-Or by hand: copy `custom_components/progresscove/` into your `config/custom_components/` and
-restart.
+1. Install **ProgressCove** in HACS, with the button above or by searching for it.
+2. Restart Home Assistant, then follow the Setup steps below.
 
 ## Setup
 
